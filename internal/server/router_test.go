@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Imanghvs/froggobank/internal/account"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type fakeDatabase struct {
@@ -25,6 +27,22 @@ func (f fakeDatabase) Ping(ctx context.Context) error {
 	return f.err
 }
 
+type fakeAccountRepository struct{}
+
+func (fakeAccountRepository) Create(
+	ctx context.Context,
+	acc account.Account,
+) error {
+	return nil
+}
+
+func (fakeAccountRepository) GetByID(
+	ctx context.Context,
+	id uuid.UUID,
+) (account.Account, error) {
+	return account.Account{}, account.ErrNotFound
+}
+
 func TestHealth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -32,7 +50,7 @@ func TestHealth(t *testing.T) {
 		slog.NewJSONHandler(io.Discard, nil),
 	)
 
-	router := NewRouter(logger, fakeDatabase{})
+	router := NewRouter(logger, fakeDatabase{}, fakeAccountRepository{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -74,7 +92,7 @@ func TestReadyWhenDatabaseIsAvailable(t *testing.T) {
 
 	database := fakeDatabase{}
 
-	router := NewRouter(logger, database)
+	router := NewRouter(logger, database, fakeAccountRepository{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -122,7 +140,7 @@ func TestNotReadyWhenDatabaseIsUnavailable(t *testing.T) {
 		err: errors.New("database unavailable"),
 	}
 
-	router := NewRouter(logger, database)
+	router := NewRouter(logger, database, fakeAccountRepository{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -175,7 +193,7 @@ func TestReadyUsesDatabaseTimeout(t *testing.T) {
 		},
 	}
 
-	router := NewRouter(logger, database)
+	router := NewRouter(logger, database, fakeAccountRepository{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
