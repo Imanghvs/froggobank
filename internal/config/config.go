@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,8 +13,9 @@ const (
 )
 
 type Config struct {
-	HTTPPort int
-	LogLevel string
+	HTTPPort    int
+	LogLevel    string
+	DatabaseURL string
 }
 
 func Load() (Config, error) {
@@ -26,7 +28,7 @@ func Load() (Config, error) {
 		}
 
 		if parsedPort < 1 || parsedPort > 65535 {
-			return Config{}, fmt.Errorf("HTTP_PORT must be between 1 and 65535")
+			return Config{}, errors.New("HTTP_PORT must be between 1 and 65535")
 		}
 
 		port = parsedPort
@@ -37,8 +39,14 @@ func Load() (Config, error) {
 		logLevel = defaultLogLevel
 	}
 
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return Config{}, errors.New("DATABASE_URL is required")
+	}
+
 	return Config{
-		HTTPPort: port,
-		LogLevel: logLevel,
+		HTTPPort:    port,
+		LogLevel:    logLevel,
+		DatabaseURL: databaseURL,
 	}, nil
 }

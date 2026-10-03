@@ -2,9 +2,15 @@ package config
 
 import "testing"
 
-const portKey string = "HTTP_PORT"
+const (
+	portKey           string = "HTTP_PORT"
+	logLevelKey       string = "LOG_LEVEL"
+	databaseURLKey    string = "DATABASE_URL"
+	sampleDatabaseURL string = "postgres://example"
+)
 
 func TestLoadUsesDefaultHTTPPort(t *testing.T) {
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "")
 	cfg, err := Load()
 
@@ -18,6 +24,7 @@ func TestLoadUsesDefaultHTTPPort(t *testing.T) {
 }
 
 func TestLoadUsesValidHTTPPort(t *testing.T) {
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "9090")
 	cfg, err := Load()
 
@@ -31,6 +38,7 @@ func TestLoadUsesValidHTTPPort(t *testing.T) {
 }
 
 func TestLoadRejectsNonIntHTTPPort(t *testing.T) {
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "invalid")
 
 	_, err := Load()
@@ -40,6 +48,7 @@ func TestLoadRejectsNonIntHTTPPort(t *testing.T) {
 }
 
 func TestLoadRejectsOutOfRangeHTTPPort(t *testing.T) {
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "666666")
 
 	_, err := Load()
@@ -49,7 +58,8 @@ func TestLoadRejectsOutOfRangeHTTPPort(t *testing.T) {
 }
 
 func TestLoadUsesDefaultLogLevel(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
+	t.Setenv(logLevelKey, "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -62,7 +72,8 @@ func TestLoadUsesDefaultLogLevel(t *testing.T) {
 }
 
 func TestLoadUsesConfiguredLogLevel(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
+	t.Setenv(logLevelKey, "debug")
 
 	cfg, err := Load()
 	if err != nil {
@@ -71,5 +82,28 @@ func TestLoadUsesConfiguredLogLevel(t *testing.T) {
 
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("expected log level %q, got %q", "debug", cfg.LogLevel)
+	}
+}
+
+func TestLoadRejectsEmptyDatabaseURL(t *testing.T) {
+	t.Setenv(databaseURLKey, "")
+	t.Setenv(logLevelKey, "debug")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestLoadUsesDatabaseURL(t *testing.T) {
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
+	t.Setenv(logLevelKey, "debug")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.DatabaseURL != sampleDatabaseURL {
+		t.Fatalf("expected url %q, got %q", sampleDatabaseURL, cfg.DatabaseURL)
 	}
 }

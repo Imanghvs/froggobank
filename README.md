@@ -20,9 +20,27 @@ FroggoBank uses environment variables for configuration.
 | --- | --- | --- |
 | `HTTP_PORT` | `8080` | HTTP server port |
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error` |
+| `DATABASE_URL` | required | PostgreSQL connection URL |
 
 Example:
 
 ```bash
-HTTP_PORT=9090 LOG_LEVEL=debug go run ./cmd/api
+DATABASE_URL='postgres://froggobank:froggobank@localhost:5432/froggobank' \
+go run ./cmd/api
+```
+
+## Health Checks
+
+### Liveness
+
+```http
+GET /health
+```
+
+Returns 200 OK when the application process is running.
+
+### Readiness
+
+```http
+GET /ready
 ```
