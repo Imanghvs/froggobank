@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	accountpostgres "github.com/Imanghvs/froggobank/internal/account/postgres"
-	"github.com/Imanghvs/froggobank/internal/config"
-	"github.com/Imanghvs/froggobank/internal/database"
-	"github.com/Imanghvs/froggobank/internal/logging"
+	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
+	"github.com/Imanghvs/froggobank/internal/account/application"
+	"github.com/Imanghvs/froggobank/internal/platform/config"
+	"github.com/Imanghvs/froggobank/internal/platform/database"
+	"github.com/Imanghvs/froggobank/internal/platform/logging"
 	"github.com/Imanghvs/froggobank/internal/server"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,8 +57,10 @@ func run() error {
 	defer pool.Close()
 
 	accountRepository := accountpostgres.New(pool)
+	accountService := application.New(accountRepository)
+	accountHandler := httpapi.New(accountService)
 
-	router := server.NewRouter(logger, pool, accountRepository)
+	router := server.NewRouter(logger, pool, accountHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

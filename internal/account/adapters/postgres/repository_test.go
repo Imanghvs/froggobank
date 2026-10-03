@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/account"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -54,7 +55,7 @@ func cleanupAccount(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) {
 func TestRepositoryCreate(t *testing.T) {
 	repo, pool := setupTestRepository(t)
 
-	acc := account.New(account.CurrencyEUR)
+	acc := domain.New(domain.CurrencyEUR)
 
 	err := repo.Create(t.Context(), acc)
 	if err != nil {
@@ -71,15 +72,18 @@ func TestRepositoryGetByIDReturnsNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, account.ErrNotFound) {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		t.Error("PostgreSQL-specific not-found error must not leave the adapter")
 	}
 }
 
 func TestRepositoryGetByID(t *testing.T) {
 	repo, pool := setupTestRepository(t)
 
-	acc := account.New(account.CurrencyEUR)
+	acc := domain.New(domain.CurrencyEUR)
 
 	err := repo.Create(t.Context(), acc)
 	if err != nil {

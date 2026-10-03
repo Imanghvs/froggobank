@@ -5,8 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/Imanghvs/froggobank/internal/account"
-	"github.com/Imanghvs/froggobank/internal/account/handler"
+	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	servermiddleware "github.com/Imanghvs/froggobank/internal/server/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +13,7 @@ import (
 func NewRouter(
 	logger *slog.Logger,
 	database DatabasePinger,
-	accountRepository account.Repository,
+	accountHandler *httpapi.Handler,
 ) *gin.Engine {
 	router := gin.New()
 
@@ -49,8 +48,6 @@ func NewRouter(
 			"status": "ready",
 		})
 	})
-
-	accountHandler := handler.New(accountRepository)
 
 	router.POST("/accounts", accountHandler.Create)
 	router.GET("/accounts/:id", accountHandler.GetByID)

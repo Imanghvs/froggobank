@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/Imanghvs/froggobank/internal/account"
+	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -27,20 +29,62 @@ func (f fakeDatabase) Ping(ctx context.Context) error {
 	return f.err
 }
 
-type fakeAccountRepository struct{}
-
-func (fakeAccountRepository) Create(
-	ctx context.Context,
-	acc account.Account,
-) error {
-	return nil
+type fakeAccountService struct {
+	account domain.Account
 }
 
-func (fakeAccountRepository) GetByID(
+func (f fakeAccountService) CreateAccount(
+	ctx context.Context,
+	currencyCode string,
+) (domain.Account, error) {
+	return f.account, nil
+}
+
+func (f fakeAccountService) GetAccountByID(
 	ctx context.Context,
 	id uuid.UUID,
-) (account.Account, error) {
-	return account.Account{}, account.ErrNotFound
+) (domain.Account, error) {
+	if id == f.account.ID {
+		return f.account, nil
+	}
+	return domain.Account{}, domain.ErrNotFound
+}
+
+func TestAccountRoutesUseSuppliedHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	acc := domain.New(domain.CurrencyEUR)
+	handler := httpapi.New(fakeAccountService{account: acc})
+	router := NewRouter(logger, fakeDatabase{}, handler)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+		status int
+	}{
+		{http.MethodPost, "/accounts", `{"currency":"EUR"}`, http.StatusCreated},
+		{http.MethodGet, "/accounts/" + acc.ID.String(), "", http.StatusOK},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != tc.status {
+				t.Fatalf("expected status %d, got %d: %s", tc.status, recorder.Code, recorder.Body.String())
+			}
+			var response struct {
+				ID uuid.UUID `json:"id"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.ID != acc.ID {
+				t.Errorf("expected supplied handler's account ID %s, got %s", acc.ID, response.ID)
+			}
+		})
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -50,7 +94,7 @@ func TestHealth(t *testing.T) {
 		slog.NewJSONHandler(io.Discard, nil),
 	)
 
-	router := NewRouter(logger, fakeDatabase{}, fakeAccountRepository{})
+	router := NewRouter(logger, fakeDatabase{}, httpapi.New(fakeAccountService{}))
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -92,7 +136,7 @@ func TestReadyWhenDatabaseIsAvailable(t *testing.T) {
 
 	database := fakeDatabase{}
 
-	router := NewRouter(logger, database, fakeAccountRepository{})
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -140,7 +184,7 @@ func TestNotReadyWhenDatabaseIsUnavailable(t *testing.T) {
 		err: errors.New("database unavailable"),
 	}
 
-	router := NewRouter(logger, database, fakeAccountRepository{})
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -193,7 +237,7 @@ func TestReadyUsesDatabaseTimeout(t *testing.T) {
 		},
 	}
 
-	router := NewRouter(logger, database, fakeAccountRepository{})
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
 
 	request := httptest.NewRequest(
 		http.MethodGet,

@@ -1,4 +1,4 @@
-package account
+package domain
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func ParseCurrency(value string) (Currency, error) {
 	currency := Currency(value)
 
 	if !currency.IsSupported() {
-		return "", fmt.Errorf("%q is not a supported currency", value)
+		return "", fmt.Errorf("%w: %q is not a supported currency", ErrInvalidCurrency, value)
 	}
 
 	return currency, nil
