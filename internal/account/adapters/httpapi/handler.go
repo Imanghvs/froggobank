@@ -1,22 +1,29 @@
-package handler
+package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/account"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-type Handler struct {
-	repository account.Repository
+// AccountService is the application capability required by the HTTP adapter.
+type AccountService interface {
+	CreateAccount(ctx context.Context, currencyCode string) (domain.Account, error)
+	GetAccountByID(ctx context.Context, id uuid.UUID) (domain.Account, error)
 }
 
-func New(repository account.Repository) *Handler {
+type Handler struct {
+	service AccountService
+}
+
+func New(service AccountService) *Handler {
 	return &Handler{
-		repository: repository,
+		service: service,
 	}
 }
 
@@ -25,9 +32,9 @@ type createAccountRequest struct {
 }
 
 type accountResponse struct {
-	ID        uuid.UUID        `json:"id"`
-	Currency  account.Currency `json:"currency"`
-	CreatedAt time.Time        `json:"created_at"`
+	ID        uuid.UUID `json:"id"`
+	Currency  string    `json:"currency"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (h *Handler) Create(c *gin.Context) {
@@ -40,17 +47,12 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	currency, err := account.ParseCurrency(req.Currency)
+	acc, err := h.service.CreateAccount(c.Request.Context(), req.Currency)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid currency",
-		})
-		return
-	}
-
-	acc := account.New(currency)
-
-	if err := h.repository.Create(c.Request.Context(), acc); err != nil {
+		if errors.Is(err, domain.ErrInvalidCurrency) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "failed to create account",
 		})
@@ -59,7 +61,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, accountResponse{
 		ID:        acc.ID,
-		Currency:  acc.Currency,
+		Currency:  string(acc.Currency),
 		CreatedAt: acc.CreatedAt,
 	})
 }
@@ -73,9 +75,9 @@ func (h *Handler) GetByID(c *gin.Context) {
 		return
 	}
 
-	acc, err := h.repository.GetByID(c.Request.Context(), id)
+	acc, err := h.service.GetAccountByID(c.Request.Context(), id)
 	if err != nil {
-		if errors.Is(err, account.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 			return
 		}
@@ -87,7 +89,7 @@ func (h *Handler) GetByID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, accountResponse{
 		ID:        acc.ID,
-		Currency:  acc.Currency,
+		Currency:  string(acc.Currency),
 		CreatedAt: acc.CreatedAt,
 	})
 }

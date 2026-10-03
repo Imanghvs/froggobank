@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Imanghvs/froggobank/internal/account"
+	"github.com/Imanghvs/froggobank/internal/account/application"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,13 +16,15 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
+var _ application.Repository = (*Repository)(nil)
+
 func New(pool *pgxpool.Pool) *Repository {
 	return &Repository{
 		pool: pool,
 	}
 }
 
-func (r *Repository) Create(ctx context.Context, acc account.Account) error {
+func (r *Repository) Create(ctx context.Context, acc domain.Account) error {
 	_, err := r.pool.Exec(
 		ctx,
 		`INSERT INTO accounts (id, currency, created_at)
@@ -36,8 +39,8 @@ func (r *Repository) Create(ctx context.Context, acc account.Account) error {
 	return nil
 }
 
-func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (account.Account, error) {
-	var acc account.Account
+func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.Account, error) {
+	var acc domain.Account
 
 	err := r.pool.QueryRow(
 		ctx,
@@ -51,9 +54,9 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (account.Account
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return account.Account{}, account.ErrNotFound
+			return domain.Account{}, domain.ErrNotFound
 		}
-		return account.Account{}, fmt.Errorf("get account by id: %w", err)
+		return domain.Account{}, fmt.Errorf("get account by id: %w", err)
 	}
 
 	return acc, nil
