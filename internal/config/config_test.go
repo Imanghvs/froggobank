@@ -47,3 +47,29 @@ func TestLoadRejectsOutOfRangeHTTPPort(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+func TestLoadUsesDefaultLogLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if cfg.LogLevel != "info" {
+		t.Fatalf("expected log level %q, got %q", "info", cfg.LogLevel)
+	}
+}
+
+func TestLoadUsesConfiguredLogLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("expected log level %q, got %q", "debug", cfg.LogLevel)
+	}
+}
