@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,12 +11,19 @@ import (
 	"time"
 
 	"github.com/Imanghvs/froggobank/internal/config"
+	"github.com/Imanghvs/froggobank/internal/logging"
 	"github.com/Imanghvs/froggobank/internal/server"
+)
+
+const (
+	readHeaderTimeout = 5 * time.Second
+	shutdownTimeout   = 10 * time.Second
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
@@ -27,12 +33,23 @@ func run() error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	router := server.NewRouter()
+	logger, err := logging.New(cfg.LogLevel, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("create logger: %w", err)
+	}
+
+	logger.Info(
+		"application starting",
+		"http_port:", cfg.HTTPPort,
+		"log_level:", cfg.LogLevel,
+	)
+
+	router := server.NewRouter(logger)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	signalCtx, stop := signal.NotifyContext(
@@ -45,7 +62,7 @@ func run() error {
 	serverErr := make(chan error, 1)
 
 	go func() {
-		log.Printf("HTTP server listening on %s", httpServer.Addr)
+		logger.Info("HTTP server listening", "address", httpServer.Addr)
 		serverErr <- httpServer.ListenAndServe()
 	}()
 
@@ -57,12 +74,12 @@ func run() error {
 		return nil
 
 	case <-signalCtx.Done():
-		log.Println("shutdown signal received")
+		logger.Info("shutdown signal received")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
-		10*time.Second,
+		shutdownTimeout,
 	)
 	defer cancel()
 
@@ -70,7 +87,7 @@ func run() error {
 		return fmt.Errorf("shutdown HTTP server: %w", err)
 	}
 
-	log.Println("HTTP server stopped!")
+	logger.Info("HTTP server stopped!")
 
 	return nil
 }

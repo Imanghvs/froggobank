@@ -6,10 +6,14 @@ import (
 	"strconv"
 )
 
-const defaultHTTPPort int = 8080
+const (
+	defaultHTTPPort int    = 8080
+	defaultLogLevel string = "info"
+)
 
 type Config struct {
 	HTTPPort int
+	LogLevel string
 }
 
 func Load() (Config, error) {
@@ -28,7 +32,13 @@ func Load() (Config, error) {
 		port = parsedPort
 	}
 
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = defaultLogLevel
+	}
+
 	return Config{
 		HTTPPort: port,
+		LogLevel: logLevel,
 	}, nil
 }

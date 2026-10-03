@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +14,11 @@ import (
 func TestHealth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	router := NewRouter()
+	logger := slog.New(
+		slog.NewJSONHandler(io.Discard, nil),
+	)
+
+	router := NewRouter(logger)
 
 	request := httptest.NewRequest(
 		http.MethodGet,
