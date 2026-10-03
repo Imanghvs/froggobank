@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	accountpostgres "github.com/Imanghvs/froggobank/internal/account/postgres"
 	"github.com/Imanghvs/froggobank/internal/config"
 	"github.com/Imanghvs/froggobank/internal/database"
 	"github.com/Imanghvs/froggobank/internal/logging"
@@ -53,7 +54,9 @@ func run() error {
 	}
 	defer pool.Close()
 
-	router := server.NewRouter(logger, pool)
+	accountRepository := accountpostgres.New(pool)
+
+	router := server.NewRouter(logger, pool, accountRepository)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
