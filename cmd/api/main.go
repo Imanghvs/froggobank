@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/Imanghvs/froggobank/internal/config"
+	"github.com/Imanghvs/froggobank/internal/database"
 	"github.com/Imanghvs/froggobank/internal/logging"
 	"github.com/Imanghvs/froggobank/internal/server"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
 	readHeaderTimeout = 5 * time.Second
 	shutdownTimeout   = 10 * time.Second
+	databaseTimeout   = 5 * time.Second
 )
 
 func main() {
@@ -40,11 +43,17 @@ func run() error {
 
 	logger.Info(
 		"application starting",
-		"http_port:", cfg.HTTPPort,
-		"log_level:", cfg.LogLevel,
+		"http_port", cfg.HTTPPort,
+		"log_level", cfg.LogLevel,
 	)
 
-	router := server.NewRouter(logger)
+	pool, err := connectDatabase(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	router := server.NewRouter(logger, pool)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -77,11 +86,11 @@ func run() error {
 		logger.Info("shutdown signal received")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(
+	shutdownCtx, shutdownCancel := context.WithTimeout(
 		context.Background(),
 		shutdownTimeout,
 	)
-	defer cancel()
+	defer shutdownCancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown HTTP server: %w", err)
@@ -90,4 +99,24 @@ func run() error {
 	logger.Info("HTTP server stopped!")
 
 	return nil
+}
+
+func connectDatabase(databaseURL string) (*pgxpool.Pool, error) {
+	startupCtx, startupCancel := context.WithTimeout(
+		context.Background(),
+		databaseTimeout,
+	)
+	defer startupCancel()
+
+	pool, err := database.NewPool(startupCtx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("create database pool: %w", err)
+	}
+
+	if err := pool.Ping(startupCtx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping PostgreSQL: %w", err)
+	}
+
+	return pool, nil
 }
