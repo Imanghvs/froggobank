@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -12,8 +13,62 @@ import (
 )
 
 type fakeRepository struct {
-	createFn  func(context.Context, domain.Account) error
-	getByIDFn func(context.Context, uuid.UUID) (domain.Account, error)
+	createFn     func(context.Context, domain.Account) error
+	getByIDFn    func(context.Context, uuid.UUID) (domain.Account, error)
+	getBalanceFn func(context.Context, uuid.UUID) (domain.Balance, error)
+}
+
+func TestServiceCreateAccountWithAccountingTypeAndPolicy(t *testing.T) {
+	service := New(fakeRepository{createFn: func(_ context.Context, acc domain.Account) error {
+		if acc.Type != domain.Asset || !acc.EnforceNonnegativeBalance {
+			t.Errorf("account type or policy not forwarded: %+v", acc)
+		}
+		return nil
+	}})
+	acc, err := service.CreateAccount(t.Context(), "EUR", "asset", true)
+	if err != nil || acc.Type != domain.Asset || !acc.EnforceNonnegativeBalance {
+		t.Fatalf("create typed account: %+v, %v", acc, err)
+	}
+}
+
+func TestServiceRejectsInvalidAccountTypeBeforePersistence(t *testing.T) {
+	service := New(fakeRepository{createFn: func(context.Context, domain.Account) error {
+		t.Fatal("invalid type reached persistence")
+		return nil
+	}})
+	if _, err := service.CreateAccount(t.Context(), "EUR", "other", false); !errors.Is(err, domain.ErrInvalidAccountType) {
+		t.Fatalf("expected invalid account type, got %v", err)
+	}
+}
+
+func TestServiceGetAccountBalance(t *testing.T) {
+	acc := domain.New(domain.CurrencyEUR)
+	want, err := domain.NewBalance(acc, big.NewInt(2500), big.NewInt(10000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, repoErr := range []error{nil, domain.ErrNotFound, context.Canceled, errors.New("database unavailable")} {
+		service := New(fakeRepository{getBalanceFn: func(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
+			if ctx != t.Context() || id != acc.ID {
+				t.Error("balance lookup lost context or ID")
+			}
+			if repoErr != nil {
+				return domain.Balance{}, repoErr
+			}
+			return want, nil
+		}})
+		got, err := service.GetAccountBalance(t.Context(), acc.ID)
+		if !errors.Is(err, repoErr) {
+			t.Fatalf("expected %v, got %v", repoErr, err)
+		}
+		if err == nil && (got.AccountID() != acc.ID || got.PostedMinor().String() != "7500") {
+			t.Fatalf("unexpected balance: %s", got.PostedMinor())
+		}
+	}
+}
+
+func (f fakeRepository) GetBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
+	return f.getBalanceFn(ctx, id)
 }
 
 func (f fakeRepository) Create(ctx context.Context, acc domain.Account) error {
@@ -41,7 +96,7 @@ func TestServiceCreateAccount(t *testing.T) {
 				},
 			})
 
-			acc, err := service.CreateAccount(ctx, string(currency))
+			acc, err := service.CreateAccount(ctx, string(currency), "", false)
 			if err != nil {
 				t.Fatalf("create account: %v", err)
 			}
@@ -56,6 +111,9 @@ func TestServiceCreateAccount(t *testing.T) {
 			}
 			if acc.Currency != currency {
 				t.Errorf("expected currency %q, got %q", currency, acc.Currency)
+			}
+			if acc.Type != domain.Liability {
+				t.Errorf("expected default liability account, got %q", acc.Type)
 			}
 			if acc.CreatedAt.IsZero() || acc.CreatedAt.Location() != time.UTC || acc.CreatedAt.Nanosecond()%1000 != 0 {
 				t.Error("expected a UTC creation time with microsecond precision")
@@ -74,7 +132,7 @@ func TestServiceCreateAccountRejectsUnsupportedCurrency(t *testing.T) {
 				},
 			})
 
-			acc, err := service.CreateAccount(t.Context(), currency)
+			acc, err := service.CreateAccount(t.Context(), currency, "", false)
 			if !errors.Is(err, domain.ErrInvalidCurrency) {
 				t.Fatalf("expected ErrInvalidCurrency, got %v", err)
 			}
@@ -94,7 +152,7 @@ func TestServiceCreateAccountReturnsRepositoryError(t *testing.T) {
 				},
 			})
 
-			acc, err := service.CreateAccount(t.Context(), "EUR")
+			acc, err := service.CreateAccount(t.Context(), "EUR", "", false)
 			if !errors.Is(err, repositoryErr) {
 				t.Fatalf("expected repository error %v, got %v", repositoryErr, err)
 			}

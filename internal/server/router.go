@@ -51,6 +51,7 @@ func NewRouter(
 
 	router.POST("/accounts", accountHandler.Create)
 	router.GET("/accounts/:id", accountHandler.GetByID)
+	router.GET("/accounts/:id/balance", accountHandler.GetBalance)
 
 	return router
 }
