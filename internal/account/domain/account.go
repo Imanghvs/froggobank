@@ -1,49 +1,51 @@
 package domain
 
 import (
-	"fmt"
 	"time"
 
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
 )
 
-type Currency string
+// Currency shares the supported-currency rules with the money domain.
+type Currency = money.Currency
 
 const (
-	CurrencyEUR Currency = "EUR"
-	CurrencyUSD Currency = "USD"
-	CurrencyGBP Currency = "GBP"
+	CurrencyEUR = money.CurrencyEUR
+	CurrencyUSD = money.CurrencyUSD
+	CurrencyGBP = money.CurrencyGBP
 )
 
-func (c Currency) IsSupported() bool {
-	switch c {
-	case CurrencyEUR, CurrencyUSD, CurrencyGBP:
-		return true
-	default:
-		return false
-	}
-}
-
 type Account struct {
-	ID        uuid.UUID
-	Currency  Currency
-	CreatedAt time.Time
+	ID       uuid.UUID
+	Currency Currency
+	Type     AccountType
+	// Generic ledger accounts are unrestricted unless this policy is enabled.
+	EnforceNonnegativeBalance bool
+	CreatedAt                 time.Time
 }
 
 func ParseCurrency(value string) (Currency, error) {
-	currency := Currency(value)
-
-	if !currency.IsSupported() {
-		return "", fmt.Errorf("%w: %q is not a supported currency", ErrInvalidCurrency, value)
-	}
-
-	return currency, nil
+	return money.ParseCurrency(value)
 }
 
 func New(currency Currency) Account {
 	return Account{
 		ID:        uuid.New(),
 		Currency:  currency,
+		Type:      Liability,
 		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
 	}
+}
+
+func NewWithType(currency Currency, accountType AccountType) (Account, error) {
+	if _, err := currency.Scale(); err != nil {
+		return Account{}, err
+	}
+	if _, err := accountType.NormalSide(); err != nil {
+		return Account{}, err
+	}
+	acc := New(currency)
+	acc.Type = accountType
+	return acc, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
@@ -27,11 +28,13 @@ func New(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Create(ctx context.Context, acc domain.Account) error {
 	_, err := r.pool.Exec(
 		ctx,
-		`INSERT INTO accounts (id, currency, created_at)
-		VALUES ($1, $2, $3)`,
+		`INSERT INTO accounts (id, currency, created_at, account_type, enforce_nonnegative_balance)
+		VALUES ($1, $2, $3, $4, $5)`,
 		acc.ID,
 		acc.Currency,
 		acc.CreatedAt,
+		string(acc.Type),
+		acc.EnforceNonnegativeBalance,
 	)
 	if err != nil {
 		return fmt.Errorf("create account: %w", err)
@@ -44,13 +47,15 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.Account,
 
 	err := r.pool.QueryRow(
 		ctx,
-		`SELECT id, currency, created_at FROM accounts
+		`SELECT id, currency, created_at, account_type, enforce_nonnegative_balance FROM accounts
 		WHERE id = $1`,
 		id,
 	).Scan(
 		&acc.ID,
 		&acc.Currency,
 		&acc.CreatedAt,
+		&acc.Type,
+		&acc.EnforceNonnegativeBalance,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -60,4 +65,29 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.Account,
 	}
 
 	return acc, nil
+}
+
+func (r *Repository) GetBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
+	var acc domain.Account
+	var debitsText, creditsText string
+	err := r.pool.QueryRow(
+		ctx,
+		`SELECT a.id, a.currency, a.account_type,
+		b.debits_minor::text, b.credits_minor::text
+		FROM accounts a LEFT JOIN account_balances b ON b.account_id = a.id
+		WHERE a.id = $1`,
+		id,
+	).Scan(&acc.ID, &acc.Currency, &acc.Type, &debitsText, &creditsText)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Balance{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Balance{}, fmt.Errorf("get account balance: %w", err)
+	}
+	debits, debitOK := new(big.Int).SetString(debitsText, 10)
+	credits, creditOK := new(big.Int).SetString(creditsText, 10)
+	if !debitOK || !creditOK {
+		return domain.Balance{}, domain.ErrInvalidBalance
+	}
+	return domain.NewBalance(acc, debits, credits)
 }

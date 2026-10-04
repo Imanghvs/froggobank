@@ -1,8 +1,14 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
+)
 
 var (
-	ErrInvalidCurrency = errors.New("invalid currency")
-	ErrNotFound        = errors.New("account not found")
+	ErrInvalidCurrency    = money.ErrInvalidCurrency
+	ErrNotFound           = errors.New("account not found")
+	ErrInvalidAccountType = errors.New("invalid account type")
+	ErrInvalidBalance     = errors.New("invalid account balance")
 )

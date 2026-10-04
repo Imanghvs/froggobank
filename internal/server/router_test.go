@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,8 +37,17 @@ type fakeAccountService struct {
 func (f fakeAccountService) CreateAccount(
 	ctx context.Context,
 	currencyCode string,
+	accountTypeCode string,
+	enforceNonnegativeBalance bool,
 ) (domain.Account, error) {
 	return f.account, nil
+}
+
+func (f fakeAccountService) GetAccountBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
+	if id != f.account.ID {
+		return domain.Balance{}, domain.ErrNotFound
+	}
+	return domain.NewBalance(f.account, big.NewInt(0), big.NewInt(0))
 }
 
 func (f fakeAccountService) GetAccountByID(
@@ -124,6 +134,23 @@ func TestHealth(t *testing.T) {
 
 	if response.Status != "ok" {
 		t.Fatalf("expected status %q got %q", "ok", response.Status)
+	}
+}
+
+func TestAccountBalanceRouteUsesSuppliedHandler(t *testing.T) {
+	acc := domain.New(domain.CurrencyEUR)
+	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{account: acc}))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/accounts/"+acc.ID.String()+"/balance", nil))
+	var body struct {
+		AccountID uuid.UUID `json:"account_id"`
+		Posted    string    `json:"posted_minor"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if res.Code != http.StatusOK || body.AccountID != acc.ID || body.Posted != "0" {
+		t.Fatalf("balance route: %d %s", res.Code, res.Body.String())
 	}
 }
 
