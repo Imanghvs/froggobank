@@ -7,6 +7,7 @@ Start with [Getting started](getting-started.md) to run the API locally.
 | Guide | Contents |
 | --- | --- |
 | [Getting started](getting-started.md) | Prerequisites, Keycloak, migrations, and login helper |
+| [Docker](docker.md) | Container builds, full local stack, migrations, volumes, and shutdown |
 | [Configuration](configuration.md) | Environment variables and startup example |
 | [API](api.md) | Endpoints, authentication requirements, and health checks |
 | [Architecture](architecture.md) | Modules, dependency rules, and composition root |

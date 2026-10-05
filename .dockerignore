@@ -1,0 +1,16 @@
+# Only source and migration inputs are included in the build context.
+**
+!Dockerfile
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!migrations/
+!migrations/**
+**/*_test.go
+**/.env*
+**/*.pem
+**/*.key
+**/*.token

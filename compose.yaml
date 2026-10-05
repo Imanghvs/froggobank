@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: froggobank
+      POSTGRES_PASSWORD: froggobank
+      POSTGRES_DB: froggobank
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U froggobank -d froggobank"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      target: migrations
+    environment:
+      GOOSE_DBSTRING: postgres://froggobank:froggobank@postgres:5432/froggobank?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD for local Keycloak}
+      KC_HOSTNAME: http://localhost:8081
+      KC_HTTP_PORT: "8081"
+      KC_HEALTH_ENABLED: "true"
+    # API shares this network namespace, so both ports are published here.
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./dev/keycloak:/opt/keycloak/data/import:ro
+      - keycloak_data:/opt/keycloak/data
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          { printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&0;
+          grep -q 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      target: api
+    # Preserve the browser's exact loopback issuer without relaxing validation.
+    network_mode: service:keycloak
+    environment:
+      HTTP_PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://froggobank:froggobank@postgres:5432/froggobank?sslmode=disable
+      OIDC_ISSUER_URL: http://localhost:8081/realms/froggobank
+      OIDC_AUDIENCE: froggobank-api
+      OIDC_ACCESS_TOKEN_PROFILE: keycloak
+      OIDC_ALLOW_INSECURE_HTTP: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 15s
+
+volumes:
+  postgres_data:
+  keycloak_data:

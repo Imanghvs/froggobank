@@ -49,6 +49,9 @@ go test ./...
 CI provisions PostgreSQL, applies these migrations, and runs the entire suite
 with `TEST_DATABASE_URL` set.
 
+A separate CI job builds and starts the [Docker stack](docker.md#ci) and checks
+the API's liveness and readiness endpoints.
+
 ## Related Documentation
 
 - [Getting started](getting-started.md) — development prerequisites

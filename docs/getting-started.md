@@ -4,6 +4,9 @@
 
 Run all commands in this guide from the repository root.
 
+To run the complete stack without installing Go or Goose, use the
+[Docker guide](docker.md). The steps below run the API on the host.
+
 ## Prerequisites
 
 - Go 1.25+
@@ -12,7 +15,7 @@ Run all commands in this guide from the repository root.
 - Goose for applying migrations
 - Python 3 if you use the optional login helper
 
-The Compose file starts Keycloak only. Provision PostgreSQL separately; the
+The auth-only `compose.auth.yaml` file starts Keycloak only. Provision PostgreSQL separately; the
 example below assumes a database named `froggobank` with a `froggobank` role
 and password on `localhost:5432`.
 
