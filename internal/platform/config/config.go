@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -13,9 +14,13 @@ const (
 )
 
 type Config struct {
-	HTTPPort    int
-	LogLevel    string
-	DatabaseURL string
+	HTTPPort               int
+	LogLevel               string
+	DatabaseURL            string
+	OIDCIssuerURL          string
+	OIDCAudience           string
+	OIDCAccessTokenProfile string
+	OIDCAllowInsecureHTTP  bool
 }
 
 func Load() (Config, error) {
@@ -43,10 +48,37 @@ func Load() (Config, error) {
 	if databaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
+	issuer := os.Getenv("OIDC_ISSUER_URL")
+	if issuer == "" || strings.TrimSpace(issuer) != issuer {
+		return Config{}, errors.New("OIDC_ISSUER_URL is required")
+	}
+	audience := os.Getenv("OIDC_AUDIENCE")
+	if audience == "" || strings.TrimSpace(audience) != audience {
+		return Config{}, errors.New("OIDC_AUDIENCE is required")
+	}
+	profile := os.Getenv("OIDC_ACCESS_TOKEN_PROFILE")
+	if profile == "" {
+		profile = "rfc9068"
+	}
+	if profile != "rfc9068" && profile != "keycloak" {
+		return Config{}, errors.New("OIDC_ACCESS_TOKEN_PROFILE must be rfc9068 or keycloak")
+	}
+	allowHTTP := false
+	if value := os.Getenv("OIDC_ALLOW_INSECURE_HTTP"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, errors.New("OIDC_ALLOW_INSECURE_HTTP must be a boolean")
+		}
+		allowHTTP = parsed
+	}
 
 	return Config{
-		HTTPPort:    port,
-		LogLevel:    logLevel,
-		DatabaseURL: databaseURL,
+		HTTPPort:               port,
+		LogLevel:               logLevel,
+		DatabaseURL:            databaseURL,
+		OIDCIssuerURL:          issuer,
+		OIDCAudience:           audience,
+		OIDCAccessTokenProfile: profile,
+		OIDCAllowInsecureHTTP:  allowHTTP,
 	}, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	servermiddleware "github.com/Imanghvs/froggobank/internal/server/middleware"
+	userhttp "github.com/Imanghvs/froggobank/internal/user/adapters/httpapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,6 +15,8 @@ func NewRouter(
 	logger *slog.Logger,
 	database DatabasePinger,
 	accountHandler *httpapi.Handler,
+	verifier servermiddleware.AccessTokenVerifier,
+	users servermiddleware.UserResolver,
 ) *gin.Engine {
 	router := gin.New()
 
@@ -49,9 +52,11 @@ func NewRouter(
 		})
 	})
 
-	router.POST("/accounts", accountHandler.Create)
-	router.GET("/accounts/:id", accountHandler.GetByID)
-	router.GET("/accounts/:id/balance", accountHandler.GetBalance)
+	protected := router.Group("", servermiddleware.Authentication(verifier, users))
+	protected.GET("/me", userhttp.Me)
+	protected.POST("/accounts", accountHandler.Create)
+	protected.GET("/accounts/:id", accountHandler.GetByID)
+	protected.GET("/accounts/:id/balance", accountHandler.GetBalance)
 
 	return router
 }

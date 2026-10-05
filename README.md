@@ -21,11 +21,17 @@ FroggoBank uses environment variables for configuration.
 | `HTTP_PORT` | `8080` | HTTP server port |
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error` |
 | `DATABASE_URL` | required | PostgreSQL connection URL |
+| `OIDC_ISSUER_URL` | required | Exact identity-provider issuer URL |
+| `OIDC_AUDIENCE` | required | Audience identifying the FroggoBank API |
+| `OIDC_ACCESS_TOKEN_PROFILE` | `rfc9068` | Access-token profile: `rfc9068` or `keycloak` |
+| `OIDC_ALLOW_INSECURE_HTTP` | `false` | Allow HTTP issuer/JWKS URLs on loopback for local development only |
 
 Example:
 
 ```bash
 DATABASE_URL='postgres://froggobank:froggobank@localhost:5432/froggobank' \
+OIDC_ISSUER_URL='https://identity.example/realms/froggobank' \
+OIDC_AUDIENCE='froggobank-api' \
 go run ./cmd/api
 ```
 
@@ -80,6 +86,104 @@ the money domain. `cmd/api/main.go` is the composition root for the HTTP API: it
 wires the pool, PostgreSQL repository, application service, HTTP handler, and
 router in that order. The router receives an already constructed account handler.
 
+The user module follows the same domain/application/adapter boundaries and
+resolves a verified `(issuer, subject)` to a stable local user. The composition
+root also wires OIDC verification and user persistence into authentication
+middleware. Account application use cases require the caller ID explicitly and
+check ownership independently of HTTP middleware.
+
+## Authentication and Ownership
+
+The API is an OAuth resource server. An identity provider handles registration,
+login, logout, password recovery, and MFA; FroggoBank does not store passwords or
+implement its own login protocol. Clients obtain an access token through their
+provider's authorization-code flow with PKCE, then send it as a Bearer token.
+
+The verifier uses OpenID discovery and cached JWKS with key-rotation refresh.
+RS256 signatures, exact issuer, API audience, expiration, subject, not-before,
+and access-token type are checked. RFC 9068 tokens must use `at+jwt` or
+`application/at+jwt` and contain the required client ID, JWT ID, and issued-at
+claims. The `keycloak` profile requires a `JWT` header and a signed `typ=Bearer`
+claim. ID tokens are rejected even if they contain the API audience. Opaque
+access tokens and other token profiles are not supported in this version.
+Discovery must succeed at API startup. HTTPS is required except for explicitly
+enabled local loopback development.
+
+`GET /me`, `POST /accounts`, `GET /accounts/{id}`, and
+`GET /accounts/{id}/balance` require authentication. Missing, invalid, or expired
+credentials return 401 with a Bearer challenge. Account lookups return 404 for
+both unknown accounts and accounts the caller does not own. Health/readiness
+remain public. Request logs contain no authorization headers, request bodies,
+or query parameters.
+
+The first authenticated request provisions a local user. A database unique
+constraint on `(issuer, subject)` handles concurrent provisioning. Email is not
+an identity key. `GET /me` returns only the local user ID and creation time.
+
+Customer accounts receive the verified local user as owner, a liability role,
+and nonnegative-balance enforcement. Creation accepts only `currency`; owner,
+accounting type, and policy fields are rejected. Assigned ownership is immutable.
+Migration `00004_create_users_and_account_ownership.sql` leaves all existing
+accounts unowned and internal. They require a deliberate trusted migration to
+establish eligible customer policy and ownership before customer access; there
+is no public assignment endpoint. Rolling back migration 00004 removes users
+and ownership metadata while retaining accounts and ledger entries.
+
+### Local Keycloak
+
+The supplied Keycloak realm enables registration, password recovery, and TOTP
+enrollment on first sign-in. It includes a public PKCE client whose access tokens
+have the `froggobank-api` audience; ID tokens do not receive that audience.
+
+```bash
+export KEYCLOAK_ADMIN_PASSWORD='choose-a-local-admin-password'
+docker compose -f compose.auth.yaml up -d
+
+export OIDC_ISSUER_URL='http://localhost:8081/realms/froggobank'
+export OIDC_AUDIENCE='froggobank-api'
+export OIDC_ACCESS_TOKEN_PROFILE='keycloak'
+export OIDC_ALLOW_INSECURE_HTTP='true'
+export DATABASE_URL='postgres://froggobank:froggobank@localhost:5432/froggobank?sslmode=disable'
+
+goose -dir migrations postgres "$DATABASE_URL" up
+go run ./cmd/api
+```
+
+Keycloak's administration console is at `http://localhost:8081`, with bootstrap
+username `admin` and the password you supplied. Configure SMTP on the FroggoBank
+realm for password-recovery email. Email verification is disabled in this local
+fixture; configure SMTP, enable verification, and use a production Keycloak
+deployment or another compatible provider outside local development.
+
+In another terminal, the optional Python 3 developer helper opens provider login
+or registration using authorization code + PKCE:
+
+```bash
+python3 dev/login.py
+```
+
+Complete registration/login and TOTP setup in the provider's browser UI. The
+helper saves only the access token to a private temporary file and prints its
+path. Use that path without printing the token:
+
+```bash
+TOKEN_FILE='/path/printed/by/login/helper.token'
+curl -H "Authorization: Bearer $(cat "$TOKEN_FILE")" http://localhost:8080/me
+curl -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+  -H 'Content-Type: application/json' \
+  -d '{"currency":"EUR"}' http://localhost:8080/accounts
+rm "$TOKEN_FILE"
+```
+
+Users can manage MFA and sign-in sessions through
+`http://localhost:8081/realms/froggobank/account/`. Provider logout ends the login
+session, but previously issued JWT access tokens remain valid until expiration
+(five minutes in the local realm). Refresh/ID tokens are not stored by the API
+or the helper. The local helper uses the fixed `froggobank-cli` client and
+`http://127.0.0.1:8090/callback`; other clients must be configured with their own
+redirect URIs and API audience. Realm import occurs only on initial startup;
+restarting with an existing volume does not overwrite its configuration.
+
 ## Money and Ledger
 
 Money stores a signed `int64` count of minor units. EUR, USD and GBP are supported,
@@ -116,9 +220,9 @@ provided.
 ## Account Balances
 
 Migration `00003_create_account_balances.sql` adds accounting types and one
-balance projection per account. Existing accounts become liabilities with
-unrestricted balances. New accounts default to the same policy; applications
-must explicitly enable the nonnegative policy for accounts that cannot overdraw.
+balance projection per account. Internal ledger accounts default to liabilities
+with unrestricted balances. The customer API always creates owned liability
+accounts with nonnegative-balance enforcement.
 
 | Account type | Normal side | Posted balance |
 | --- | --- | --- |
@@ -130,19 +234,21 @@ These accounting types describe ledger accounts; customer/product accounts can
 later map to several ledger accounts. Account identity, currency, accounting
 type, and balance policy are immutable after creation.
 
-Create a liability account that cannot have a negative posted balance:
+Create a customer liability account that cannot have a negative posted balance:
 
 ```http
 POST /accounts
 Content-Type: application/json
+Authorization: Bearer <access token>
 
-{"currency":"EUR","account_type":"liability","enforce_nonnegative_balance":true}
+{"currency":"EUR"}
 ```
 
 Read its posted balance:
 
 ```http
 GET /accounts/{id}/balance
+Authorization: Bearer <access token>
 ```
 
 Example after postings crediting 10000 and debiting 2500 EUR minor units:
@@ -161,7 +267,7 @@ Example after postings crediting 10000 and debiting 2500 EUR minor units:
 ```
 
 The posted balance is EUR 75.00. An existing account with no postings returns
-zero; an unknown account returns 404. Totals are decimal strings in JSON to
+zero; unknown or unowned accounts return 404. Totals are decimal strings in JSON to
 preserve integer precision in clients. Go snapshots use `big.Int`; PostgreSQL
 uses exact `NUMERIC` values constrained to finite, nonnegative integers. Lifetime
 debit/credit turnover may exceed `int64`, although individual postings use
@@ -202,6 +308,11 @@ gofmt -w .
 go vet ./...
 go test ./...
 ```
+
+Authentication tests use a local discovery/JWKS fixture with real signed tokens,
+including invalid credentials, ID-token rejection, and signing-key rotation.
+PostgreSQL integration tests cover concurrent user provisioning, account
+ownership, and protected HTTP routes. Automated tests never require live Keycloak.
 
 Domain and application tests run without a database. Application tests fake the
 repository port; HTTP tests fake the application service boundary.

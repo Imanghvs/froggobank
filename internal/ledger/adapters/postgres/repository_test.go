@@ -21,7 +21,7 @@ import (
 
 func setupTestRepository(t *testing.T) (*Repository, *pgxpool.Pool) {
 	t.Helper()
-	return setupTestRepositoryWithMigrations(t, "00001_create_accounts.sql", "00002_create_ledger.sql", "00003_create_account_balances.sql")
+	return setupTestRepositoryWithMigrations(t, "00001_create_accounts.sql", "00002_create_ledger.sql", "00003_create_account_balances.sql", "00004_create_users_and_account_ownership.sql")
 }
 
 func setupTestRepositoryWithMigrations(t *testing.T, filenames ...string) (*Repository, *pgxpool.Pool) {

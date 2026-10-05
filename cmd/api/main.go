@@ -13,10 +13,13 @@ import (
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
 	"github.com/Imanghvs/froggobank/internal/account/application"
+	authoidc "github.com/Imanghvs/froggobank/internal/platform/authentication/oidc"
 	"github.com/Imanghvs/froggobank/internal/platform/config"
 	"github.com/Imanghvs/froggobank/internal/platform/database"
 	"github.com/Imanghvs/froggobank/internal/platform/logging"
 	"github.com/Imanghvs/froggobank/internal/server"
+	userpostgres "github.com/Imanghvs/froggobank/internal/user/adapters/postgres"
+	users "github.com/Imanghvs/froggobank/internal/user/application"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,12 +58,24 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	discoveryCtx, discoveryCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	verifier, err := authoidc.New(discoveryCtx, authoidc.Config{
+		IssuerURL:          cfg.OIDCIssuerURL,
+		Audience:           cfg.OIDCAudience,
+		AccessTokenProfile: cfg.OIDCAccessTokenProfile,
+		AllowInsecureHTTP:  cfg.OIDCAllowInsecureHTTP,
+	})
+	discoveryCancel()
+	if err != nil {
+		return fmt.Errorf("configure authentication: %w", err)
+	}
+	userService := users.New(userpostgres.New(pool))
 
 	accountRepository := accountpostgres.New(pool)
 	accountService := application.New(accountRepository)
 	accountHandler := httpapi.New(accountService)
 
-	router := server.NewRouter(logger, pool, accountHandler)
+	router := server.NewRouter(logger, pool, accountHandler, verifier, userService)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

@@ -10,6 +10,7 @@ const (
 )
 
 func TestLoadUsesDefaultHTTPPort(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "")
 	cfg, err := Load()
@@ -24,6 +25,7 @@ func TestLoadUsesDefaultHTTPPort(t *testing.T) {
 }
 
 func TestLoadUsesValidHTTPPort(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "9090")
 	cfg, err := Load()
@@ -38,6 +40,7 @@ func TestLoadUsesValidHTTPPort(t *testing.T) {
 }
 
 func TestLoadRejectsNonIntHTTPPort(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "invalid")
 
@@ -48,6 +51,7 @@ func TestLoadRejectsNonIntHTTPPort(t *testing.T) {
 }
 
 func TestLoadRejectsOutOfRangeHTTPPort(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(portKey, "666666")
 
@@ -58,6 +62,7 @@ func TestLoadRejectsOutOfRangeHTTPPort(t *testing.T) {
 }
 
 func TestLoadUsesDefaultLogLevel(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(logLevelKey, "")
 
@@ -72,6 +77,7 @@ func TestLoadUsesDefaultLogLevel(t *testing.T) {
 }
 
 func TestLoadUsesConfiguredLogLevel(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(logLevelKey, "debug")
 
@@ -86,6 +92,7 @@ func TestLoadUsesConfiguredLogLevel(t *testing.T) {
 }
 
 func TestLoadRejectsEmptyDatabaseURL(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, "")
 	t.Setenv(logLevelKey, "debug")
 
@@ -96,6 +103,7 @@ func TestLoadRejectsEmptyDatabaseURL(t *testing.T) {
 }
 
 func TestLoadUsesDatabaseURL(t *testing.T) {
+	configureOIDC(t)
 	t.Setenv(databaseURLKey, sampleDatabaseURL)
 	t.Setenv(logLevelKey, "debug")
 
@@ -105,5 +113,45 @@ func TestLoadUsesDatabaseURL(t *testing.T) {
 	}
 	if cfg.DatabaseURL != sampleDatabaseURL {
 		t.Fatalf("expected url %q, got %q", sampleDatabaseURL, cfg.DatabaseURL)
+	}
+}
+
+func configureOIDC(t *testing.T) {
+	t.Helper()
+	t.Setenv("OIDC_ISSUER_URL", "https://identity.example/realms/test")
+	t.Setenv("OIDC_AUDIENCE", "froggobank-api")
+	t.Setenv("OIDC_ACCESS_TOKEN_PROFILE", "")
+	t.Setenv("OIDC_ALLOW_INSECURE_HTTP", "")
+}
+
+func TestLoadOIDCConfiguration(t *testing.T) {
+	configureOIDC(t)
+	t.Setenv(databaseURLKey, sampleDatabaseURL)
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OIDCIssuerURL != "https://identity.example/realms/test" || got.OIDCAudience != "froggobank-api" || got.OIDCAccessTokenProfile != "rfc9068" || got.OIDCAllowInsecureHTTP {
+		t.Fatalf("invalid OIDC defaults: %+v", got)
+	}
+	t.Setenv("OIDC_ACCESS_TOKEN_PROFILE", "keycloak")
+	t.Setenv("OIDC_ALLOW_INSECURE_HTTP", "true")
+	got, err = Load()
+	if err != nil || got.OIDCAccessTokenProfile != "keycloak" || !got.OIDCAllowInsecureHTTP {
+		t.Fatalf("local OIDC config: %+v %v", got, err)
+	}
+}
+func TestLoadRejectsMissingOrInvalidOIDCSettings(t *testing.T) {
+	for _, tc := range []struct{ key, value string }{
+		{"OIDC_ISSUER_URL", ""}, {"OIDC_AUDIENCE", ""}, {"OIDC_ACCESS_TOKEN_PROFILE", "unknown"}, {"OIDC_ALLOW_INSECURE_HTTP", "invalid"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			configureOIDC(t)
+			t.Setenv(databaseURLKey, sampleDatabaseURL)
+			t.Setenv(tc.key, tc.value)
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid config accepted")
+			}
+		})
 	}
 }
