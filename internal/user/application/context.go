@@ -3,8 +3,9 @@ package application
 import (
 	"context"
 
-	"github.com/Imanghvs/froggobank/internal/user/domain"
 	"github.com/google/uuid"
+
+	"github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
 type userContextKey struct{}

@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // AccountService is the application capability required by the HTTP adapter.

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	accounthttp "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
 	accounts "github.com/Imanghvs/froggobank/internal/account/application"
@@ -23,7 +25,6 @@ import (
 	userpostgres "github.com/Imanghvs/froggobank/internal/user/adapters/postgres"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/google/uuid"
 )
 
 func TestAuthenticatedAccountAPIWithPostgres(t *testing.T) {

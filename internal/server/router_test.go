@@ -12,11 +12,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type fakeDatabase struct {

@@ -3,9 +3,10 @@ package domain
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/google/uuid"
 )
 
 // Currency shares the supported-currency rules with the money domain.

@@ -303,11 +303,20 @@ the default liability type and unrestricted policy.
 
 ## Testing
 
+Use golangci-lint v2.14.0 (the version pinned in CI). On macOS, install it
+with `brew install golangci-lint`; for other platforms or a specific version,
+see the [installation guide](https://golangci-lint.run/docs/welcome/install/local/).
+
 ```bash
-gofmt -w .
-go vet ./...
-go test ./...
+make fmt   # Format Go files and organize imports
+make lint  # Check formatting and run the standard linters
+make test  # Run tests
 ```
+
+The shared `.golangci.yml` enables `goimports` formatting, with project imports
+grouped separately, and the standard `errcheck`, `govet`, `ineffassign`,
+`staticcheck`, and `unused` linters. CI checks formatting and lint without
+rewriting files.
 
 Authentication tests use a local discovery/JWKS fixture with real signed tokens,
 including invalid credentials, ID-token rejection, and signing-key rotation.

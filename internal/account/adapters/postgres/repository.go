@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/Imanghvs/froggobank/internal/account/application"
-	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/account/application"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 )
 
 type Repository struct {

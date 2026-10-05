@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/user/domain"
 	coreoidc "github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
 const (

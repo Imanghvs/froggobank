@@ -4,13 +4,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	accounts "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
 	account "github.com/Imanghvs/froggobank/internal/account/domain"
 	testdb "github.com/Imanghvs/froggobank/internal/testutil/postgres"
 	"github.com/Imanghvs/froggobank/internal/user/application"
 	"github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestFindOrCreateConcurrentRequests(t *testing.T) {

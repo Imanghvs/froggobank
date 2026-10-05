@@ -3,8 +3,9 @@ package domain
 import (
 	"fmt"
 
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 )
 
 type Side string

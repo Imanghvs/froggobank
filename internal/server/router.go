@@ -5,10 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	servermiddleware "github.com/Imanghvs/froggobank/internal/server/middleware"
 	userhttp "github.com/Imanghvs/froggobank/internal/user/adapters/httpapi"
-	"github.com/gin-gonic/gin"
 )
 
 func NewRouter(

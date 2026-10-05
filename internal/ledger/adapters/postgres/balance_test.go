@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
 	account "github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/Imanghvs/froggobank/internal/ledger/domain"
 	money "github.com/Imanghvs/froggobank/internal/money/domain"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func assertBalance(t *testing.T, pool *pgxpool.Pool, id uuid.UUID, debits, credits, posted string) {
@@ -107,7 +108,7 @@ func TestPostedBalancesRollbackOnCommitFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(t.Context())
+	defer rollbackTestTransaction(t, tx)
 	entryID := uuid.New()
 	if _, err := tx.Exec(t.Context(), `INSERT INTO ledger_transactions (id, created_at, posting_count) VALUES ($1, now(), 2)`, entryID); err != nil {
 		t.Fatal(err)
@@ -263,7 +264,7 @@ func TestNonnegativePolicyChecksFinalTotalsForDirectSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(t.Context())
+	defer rollbackTestTransaction(t, tx)
 	id := uuid.New()
 	if _, err := tx.Exec(t.Context(), `INSERT INTO ledger_transactions (id, created_at, posting_count) VALUES ($1, now(), 2)`, id); err != nil {
 		t.Fatal(err)
@@ -289,7 +290,7 @@ func TestNonnegativePolicyChecksFinalTotalsForDirectSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(t.Context())
+	defer rollbackTestTransaction(t, tx)
 	id = uuid.New()
 	if _, err := tx.Exec(t.Context(), `INSERT INTO ledger_transactions (id, created_at, posting_count) VALUES ($1, now(), 2)`, id); err != nil {
 		t.Fatal(err)

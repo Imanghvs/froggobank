@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 )
 
 func setupTestRepository(t *testing.T) (*Repository, *pgxpool.Pool) {

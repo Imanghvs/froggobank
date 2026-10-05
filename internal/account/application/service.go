@@ -3,9 +3,10 @@ package application
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/google/uuid"
 )
 
 type Service struct {

@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Imanghvs/froggobank/internal/user/application"
-	"github.com/Imanghvs/froggobank/internal/user/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/user/application"
+	"github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
 type Repository struct{ pool *pgxpool.Pool }

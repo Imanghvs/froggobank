@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
 	"github.com/Imanghvs/froggobank/internal/account/application"
@@ -20,7 +22,6 @@ import (
 	"github.com/Imanghvs/froggobank/internal/server"
 	userpostgres "github.com/Imanghvs/froggobank/internal/user/adapters/postgres"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (

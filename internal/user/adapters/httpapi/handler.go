@@ -3,8 +3,9 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/Imanghvs/froggobank/internal/user/application"
 	"github.com/gin-gonic/gin"
+
+	"github.com/Imanghvs/froggobank/internal/user/application"
 )
 
 func Me(c *gin.Context) {

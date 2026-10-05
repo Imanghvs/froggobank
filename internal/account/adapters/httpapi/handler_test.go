@@ -10,11 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type fakeService struct {

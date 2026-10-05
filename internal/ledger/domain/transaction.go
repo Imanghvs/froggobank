@@ -6,8 +6,9 @@ import (
 	"slices"
 	"time"
 
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 )
 
 // Transaction is an immutable set of postings balanced separately per currency.

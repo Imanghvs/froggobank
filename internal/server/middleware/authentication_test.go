@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/Imanghvs/froggobank/internal/user/application"
 	"github.com/Imanghvs/froggobank/internal/user/domain"
-	"github.com/gin-gonic/gin"
 )
 
 type fakeVerifier struct {
