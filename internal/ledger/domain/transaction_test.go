@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 )
 
 func TestTransactionBalancesEachCurrency(t *testing.T) {

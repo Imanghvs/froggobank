@@ -12,10 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
-	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
+	user "github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
 type fakeDatabase struct {
@@ -36,14 +38,13 @@ type fakeAccountService struct {
 
 func (f fakeAccountService) CreateAccount(
 	ctx context.Context,
+	callerID uuid.UUID,
 	currencyCode string,
-	accountTypeCode string,
-	enforceNonnegativeBalance bool,
 ) (domain.Account, error) {
 	return f.account, nil
 }
 
-func (f fakeAccountService) GetAccountBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
+func (f fakeAccountService) GetAccountBalance(ctx context.Context, callerID, id uuid.UUID) (domain.Balance, error) {
 	if id != f.account.ID {
 		return domain.Balance{}, domain.ErrNotFound
 	}
@@ -52,7 +53,7 @@ func (f fakeAccountService) GetAccountBalance(ctx context.Context, id uuid.UUID)
 
 func (f fakeAccountService) GetAccountByID(
 	ctx context.Context,
-	id uuid.UUID,
+	callerID, id uuid.UUID,
 ) (domain.Account, error) {
 	if id == f.account.ID {
 		return f.account, nil
@@ -65,7 +66,7 @@ func TestAccountRoutesUseSuppliedHandler(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	acc := domain.New(domain.CurrencyEUR)
 	handler := httpapi.New(fakeAccountService{account: acc})
-	router := NewRouter(logger, fakeDatabase{}, handler)
+	router := NewRouter(logger, fakeDatabase{}, handler, testVerifier{}, testUsers{})
 
 	for _, tc := range []struct {
 		method string
@@ -79,6 +80,7 @@ func TestAccountRoutesUseSuppliedHandler(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer test-token")
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, request)
 			if recorder.Code != tc.status {
@@ -104,7 +106,7 @@ func TestHealth(t *testing.T) {
 		slog.NewJSONHandler(io.Discard, nil),
 	)
 
-	router := NewRouter(logger, fakeDatabase{}, httpapi.New(fakeAccountService{}))
+	router := NewRouter(logger, fakeDatabase{}, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -139,9 +141,11 @@ func TestHealth(t *testing.T) {
 
 func TestAccountBalanceRouteUsesSuppliedHandler(t *testing.T) {
 	acc := domain.New(domain.CurrencyEUR)
-	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{account: acc}))
+	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{account: acc}), testVerifier{}, testUsers{})
 	res := httptest.NewRecorder()
-	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/accounts/"+acc.ID.String()+"/balance", nil))
+	request := httptest.NewRequest(http.MethodGet, "/accounts/"+acc.ID.String()+"/balance", nil)
+	request.Header.Set("Authorization", "Bearer test-token")
+	router.ServeHTTP(res, request)
 	var body struct {
 		AccountID uuid.UUID `json:"account_id"`
 		Posted    string    `json:"posted_minor"`
@@ -163,7 +167,7 @@ func TestReadyWhenDatabaseIsAvailable(t *testing.T) {
 
 	database := fakeDatabase{}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -211,7 +215,7 @@ func TestNotReadyWhenDatabaseIsUnavailable(t *testing.T) {
 		err: errors.New("database unavailable"),
 	}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -264,7 +268,7 @@ func TestReadyUsesDatabaseTimeout(t *testing.T) {
 		},
 	}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}))
+	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -286,5 +290,49 @@ func TestReadyUsesDatabaseTimeout(t *testing.T) {
 
 	if !hasDeadline {
 		t.Fatal("expected database ping context to have a deadline")
+	}
+}
+
+type testVerifier struct{}
+
+func (testVerifier) Verify(ctx context.Context, token string) (user.Identity, error) {
+	if token != "test-token" {
+		return user.Identity{}, user.ErrUnauthenticated
+	}
+	return user.NewIdentity("https://issuer.example", "subject")
+}
+
+type testUsers struct{}
+
+func (testUsers) ResolveIdentity(ctx context.Context, identity user.Identity) (user.User, error) {
+	return user.User{ID: uuid.MustParse("246d4d77-07c1-40dc-9b28-9af57a2d4cb9"), Identity: identity}, nil
+}
+func TestProtectedRoutesRejectMissingOrInvalidTokens(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	for _, path := range []string{"/me", "/accounts/" + uuid.NewString(), "/accounts/" + uuid.NewString() + "/balance"} {
+		for _, header := range []string{"", "Bearer invalid", "Basic abc"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			if header != "" {
+				req.Header.Set("Authorization", header)
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != http.StatusUnauthorized {
+				t.Fatalf("%s: %d %s", path, res.Code, res.Body.String())
+			}
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/accounts", strings.NewReader(`{"currency":"EUR"}`))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != 401 {
+		t.Fatal(res.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/me", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	res = httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != 200 || !strings.Contains(res.Body.String(), "246d4d77-07c1-40dc-9b28-9af57a2d4cb9") {
+		t.Fatal(res.Body.String())
 	}
 }

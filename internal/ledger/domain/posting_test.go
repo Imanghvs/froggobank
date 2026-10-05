@@ -5,8 +5,9 @@ import (
 	"math"
 	"testing"
 
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 )
 
 func makePosting(t *testing.T, side Side, units int64, currency money.Currency) Posting {

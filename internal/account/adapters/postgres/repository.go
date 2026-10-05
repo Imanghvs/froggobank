@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/Imanghvs/froggobank/internal/account/application"
-	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/account/application"
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 )
 
 type Repository struct {
@@ -26,15 +27,20 @@ func New(pool *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, acc domain.Account) error {
+	var ownerID any
+	if acc.OwnerID != uuid.Nil {
+		ownerID = acc.OwnerID
+	}
 	_, err := r.pool.Exec(
 		ctx,
-		`INSERT INTO accounts (id, currency, created_at, account_type, enforce_nonnegative_balance)
-		VALUES ($1, $2, $3, $4, $5)`,
+		`INSERT INTO accounts (id, currency, created_at, account_type, enforce_nonnegative_balance, owner_id)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
 		acc.ID,
 		acc.Currency,
 		acc.CreatedAt,
 		string(acc.Type),
 		acc.EnforceNonnegativeBalance,
+		ownerID,
 	)
 	if err != nil {
 		return fmt.Errorf("create account: %w", err)
@@ -47,7 +53,8 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.Account,
 
 	err := r.pool.QueryRow(
 		ctx,
-		`SELECT id, currency, created_at, account_type, enforce_nonnegative_balance FROM accounts
+		`SELECT id, currency, created_at, account_type, enforce_nonnegative_balance,
+		COALESCE(owner_id, '00000000-0000-0000-0000-000000000000'::uuid) FROM accounts
 		WHERE id = $1`,
 		id,
 	).Scan(
@@ -56,6 +63,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.Account,
 		&acc.CreatedAt,
 		&acc.Type,
 		&acc.EnforceNonnegativeBalance,
+		&acc.OwnerID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -6,9 +6,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/Imanghvs/froggobank/internal/ledger/domain"
 	money "github.com/Imanghvs/froggobank/internal/money/domain"
-	"github.com/google/uuid"
 )
 
 type fakeRepository struct {

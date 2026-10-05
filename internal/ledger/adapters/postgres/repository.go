@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/ledger/application"
-	"github.com/Imanghvs/froggobank/internal/ledger/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/ledger/application"
+	"github.com/Imanghvs/froggobank/internal/ledger/domain"
 )
 
 type Repository struct {

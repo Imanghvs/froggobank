@@ -10,18 +10,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Imanghvs/froggobank/internal/ledger/application"
-	"github.com/Imanghvs/froggobank/internal/ledger/domain"
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Imanghvs/froggobank/internal/ledger/application"
+	"github.com/Imanghvs/froggobank/internal/ledger/domain"
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
 )
+
+func rollbackTestTransaction(t *testing.T, tx pgx.Tx) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Commit and explicit rollback may already have closed the transaction.
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		t.Errorf("rollback test transaction: %v", err)
+	}
+}
 
 func setupTestRepository(t *testing.T) (*Repository, *pgxpool.Pool) {
 	t.Helper()
-	return setupTestRepositoryWithMigrations(t, "00001_create_accounts.sql", "00002_create_ledger.sql", "00003_create_account_balances.sql")
+	return setupTestRepositoryWithMigrations(t, "00001_create_accounts.sql", "00002_create_ledger.sql", "00003_create_account_balances.sql", "00004_create_users_and_account_ownership.sql")
 }
 
 func setupTestRepositoryWithMigrations(t *testing.T, filenames ...string) (*Repository, *pgxpool.Pool) {
@@ -398,7 +409,7 @@ func TestLedgerCannotExtendCommittedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(t.Context())
+	defer rollbackTestTransaction(t, tx)
 	for _, side := range []domain.Side{domain.Debit, domain.Credit} {
 		_, err := tx.Exec(t.Context(), `INSERT INTO ledger_postings (id, transaction_id, account_id, side, amount_minor, currency)
 			VALUES ($1, $2, $3, $4, 100, 'EUR')`, uuid.New(), entry.ID(), accountID, string(side))
@@ -444,7 +455,7 @@ func TestLedgerDatabaseRejectsIncompleteOrUnbalancedEntries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer tx.Rollback(t.Context())
+			defer rollbackTestTransaction(t, tx)
 			id := uuid.New()
 			_, err = tx.Exec(t.Context(), `INSERT INTO ledger_transactions (id, created_at, posting_count) VALUES ($1, $2, $3)`, id, time.Now().UTC(), tc.count)
 			if err != nil {
@@ -487,7 +498,7 @@ func TestLedgerDatabaseRejectsInvalidPostingRows(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer tx.Rollback(t.Context())
+			defer rollbackTestTransaction(t, tx)
 			id := uuid.New()
 			if _, err := tx.Exec(t.Context(), `INSERT INTO ledger_transactions (id, created_at, posting_count) VALUES ($1, $2, 2)`, id, time.Now().UTC()); err != nil {
 				t.Fatal(err)

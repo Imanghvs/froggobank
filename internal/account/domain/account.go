@@ -3,8 +3,10 @@ package domain
 import (
 	"time"
 
-	money "github.com/Imanghvs/froggobank/internal/money/domain"
 	"github.com/google/uuid"
+
+	money "github.com/Imanghvs/froggobank/internal/money/domain"
+	user "github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
 // Currency shares the supported-currency rules with the money domain.
@@ -20,9 +22,24 @@ type Account struct {
 	ID       uuid.UUID
 	Currency Currency
 	Type     AccountType
+	// Nil marks an internal ledger account that customers cannot access.
+	OwnerID uuid.UUID
 	// Generic ledger accounts are unrestricted unless this policy is enabled.
 	EnforceNonnegativeBalance bool
 	CreatedAt                 time.Time
+}
+
+func NewCustomer(currency Currency, ownerID uuid.UUID) (Account, error) {
+	if ownerID == uuid.Nil {
+		return Account{}, user.ErrUnauthenticated
+	}
+	acc, err := NewWithType(currency, Liability)
+	if err != nil {
+		return Account{}, err
+	}
+	acc.OwnerID = ownerID
+	acc.EnforceNonnegativeBalance = true
+	return acc, nil
 }
 
 func ParseCurrency(value string) (Currency, error) {

@@ -3,8 +3,9 @@ package application
 import (
 	"context"
 
-	"github.com/Imanghvs/froggobank/internal/account/domain"
 	"github.com/google/uuid"
+
+	"github.com/Imanghvs/froggobank/internal/account/domain"
 )
 
 // Repository is the persistence capability required by the account use cases.
