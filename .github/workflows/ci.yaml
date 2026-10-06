@@ -5,6 +5,35 @@ on:
   pull_request:
 
 jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      KEYCLOAK_ADMIN_PASSWORD: ci-local-admin-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build and start local stack
+        run: docker compose up --build --wait --wait-timeout 300
+
+      - name: Check API health
+        run: |
+          curl --fail --silent --show-error http://localhost:8080/health
+          curl --fail --silent --show-error http://localhost:8080/ready
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop local stack
+        if: always()
+        run: docker compose down --volumes
+
   lint:
     runs-on: ubuntu-latest
     permissions:
