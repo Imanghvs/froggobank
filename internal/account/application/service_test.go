@@ -22,8 +22,7 @@ type fakeRepository struct {
 	getUserAccounts func(
 		context.Context,
 		uuid.UUID,
-		int,
-		int,
+		AccountFilter,
 	) (domain.PaginatedAccountsResponse, error)
 }
 
@@ -39,10 +38,9 @@ func (f fakeRepository) GetBalance(ctx context.Context, id uuid.UUID) (domain.Ba
 func (f fakeRepository) GetUserAccounts(
 	ctx context.Context,
 	userID uuid.UUID,
-	limit int,
-	offset int,
+	filter AccountFilter,
 ) (domain.PaginatedAccountsResponse, error) {
-	return f.getUserAccounts(ctx, userID, limit, offset)
+	return f.getUserAccounts(ctx, userID, filter)
 }
 
 func TestCreateCustomerAccount(t *testing.T) {
@@ -89,7 +87,7 @@ func TestUnauthenticatedApplicationCallsDoNotReachRepository(t *testing.T) {
 	if _, err := s.GetAccountBalance(t.Context(), uuid.Nil, uuid.New()); !errors.Is(err, user.ErrUnauthenticated) {
 		t.Fatal(err)
 	}
-	if _, err := s.GetUserAccounts(t.Context(), uuid.Nil, 20, 0); !errors.Is(err, user.ErrUnauthenticated) {
+	if _, err := s.GetUserAccounts(t.Context(), uuid.Nil, AccountFilter{}); !errors.Is(err, user.ErrUnauthenticated) {
 		t.Fatal(err)
 	}
 }
@@ -172,31 +170,34 @@ func TestGetUserAccounts(t *testing.T) {
 		}
 		accounts = append(accounts, acc)
 	}
+	eur, usd, gbp := domain.CurrencyEUR, domain.CurrencyUSD, domain.CurrencyGBP
 	for _, tc := range []struct {
 		name     string
-		limit    int
-		offset   int
+		filter   AccountFilter
 		accounts []domain.Account
 	}{
-		{"populated page", 2, 3, accounts},
-		{"empty page", 20, 0, []domain.Account{}},
-		{"offset beyond results", 100, 1000, nil},
+		{"populated page without currency filter", AccountFilter{Limit: 2, Offset: 3}, accounts},
+		{"empty page", AccountFilter{Limit: 20}, []domain.Account{}},
+		{"offset beyond results", AccountFilter{Limit: 100, Offset: 1000}, nil},
+		{"EUR filter", AccountFilter{Limit: 1, Offset: 2, Currency: &eur}, accounts[1:]},
+		{"USD filter", AccountFilter{Limit: 10, Currency: &usd}, accounts[:1]},
+		{"GBP filter with empty results", AccountFilter{Limit: 20, Currency: &gbp}, []domain.Account{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := domain.PaginatedAccountsResponse{
 				Accounts: tc.accounts,
-				Limit:    tc.limit,
-				Offset:   tc.offset,
+				Limit:    tc.filter.Limit,
+				Offset:   tc.filter.Offset,
 			}
 			calls := 0
-			service := New(fakeRepository{getUserAccounts: func(ctx context.Context, userID uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+			service := New(fakeRepository{getUserAccounts: func(ctx context.Context, userID uuid.UUID, filter AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				calls++
-				if ctx != t.Context() || userID != caller || limit != tc.limit || offset != tc.offset {
-					t.Errorf("repository arguments changed: userID=%s limit=%d offset=%d", userID, limit, offset)
+				if ctx != t.Context() || userID != caller || filter != tc.filter {
+					t.Errorf("repository arguments changed: userID=%s filter=%+v, want userID=%s filter=%+v", userID, filter, caller, tc.filter)
 				}
 				return want, nil
 			}})
-			got, err := service.GetUserAccounts(t.Context(), caller, tc.limit, tc.offset)
+			got, err := service.GetUserAccounts(t.Context(), caller, tc.filter)
 			if err != nil {
 				t.Fatalf("get user accounts: %v", err)
 			}
@@ -212,6 +213,8 @@ func TestGetUserAccounts(t *testing.T) {
 
 func TestGetUserAccountsPreservesRepositoryErrors(t *testing.T) {
 	caller := uuid.New()
+	currency := domain.CurrencyEUR
+	filter := AccountFilter{Limit: 20, Offset: 5, Currency: &currency}
 	databaseErr := errors.New("database unavailable")
 	for _, tc := range []struct {
 		name string
@@ -223,7 +226,7 @@ func TestGetUserAccountsPreservesRepositoryErrors(t *testing.T) {
 		{"deadline exceeded", context.DeadlineExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := New(fakeRepository{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+			service := New(fakeRepository{getUserAccounts: func(context.Context, uuid.UUID, AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				// A failed read must not expose a partial result.
 				return domain.PaginatedAccountsResponse{
 					Accounts: []domain.Account{domain.New(domain.CurrencyEUR)},
@@ -231,7 +234,7 @@ func TestGetUserAccountsPreservesRepositoryErrors(t *testing.T) {
 					Offset:   5,
 				}, tc.err
 			}})
-			got, err := service.GetUserAccounts(t.Context(), caller, 20, 5)
+			got, err := service.GetUserAccounts(t.Context(), caller, filter)
 			if !errors.Is(err, tc.err) {
 				t.Fatalf("got error %v, want %v", err, tc.err)
 			}

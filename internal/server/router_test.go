@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
@@ -36,7 +37,7 @@ func (f fakeDatabase) Ping(ctx context.Context) error {
 
 type fakeAccountService struct {
 	account           domain.Account
-	getUserAccountsFn func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error)
+	getUserAccountsFn func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error)
 }
 
 func (f fakeAccountService) CreateAccount(
@@ -67,17 +68,16 @@ func (f fakeAccountService) GetAccountByID(
 func (f fakeAccountService) GetUserAccounts(
 	ctx context.Context,
 	callerID uuid.UUID,
-	limit int,
-	offset int,
+	query application.AccountFilter,
 ) (domain.PaginatedAccountsResponse, error) {
 	if f.getUserAccountsFn != nil {
-		return f.getUserAccountsFn(ctx, callerID, limit, offset)
+		return f.getUserAccountsFn(ctx, callerID, query)
 	}
 	var resAccounts []domain.Account
 	return domain.PaginatedAccountsResponse{
 		Accounts: resAccounts,
-		Limit:    limit,
-		Offset:   offset,
+		Limit:    query.Limit,
+		Offset:   query.Offset,
 	}, nil
 }
 
@@ -370,27 +370,38 @@ func TestListAccountsRouteUsesAuthenticatedCallerAndPagination(t *testing.T) {
 		limit    int
 		offset   int
 		accounts []domain.Account
+		currency domain.Currency
 	}{
-		{"defaults", "/accounts", 20, 0, []domain.Account{acc}},
-		{"explicit pagination", "/accounts?limit=2&offset=3", 2, 3, []domain.Account{acc}},
-		{"minimum limit", "/accounts?limit=1", 1, 0, []domain.Account{acc}},
-		{"maximum limit", "/accounts?limit=100", 100, 0, []domain.Account{acc}},
-		{"offset only", "/accounts?offset=4", 20, 4, []domain.Account{acc}},
-		{"empty page", "/accounts?limit=2&offset=100", 2, 100, []domain.Account{}},
-		{"nil results become an empty array", "/accounts", 20, 0, nil},
+		{"defaults", "/accounts", 20, 0, []domain.Account{acc}, ""},
+		{"explicit pagination", "/accounts?limit=2&offset=3", 2, 3, []domain.Account{acc}, ""},
+		{"minimum limit", "/accounts?limit=1", 1, 0, []domain.Account{acc}, ""},
+		{"maximum limit", "/accounts?limit=100", 100, 0, []domain.Account{acc}, ""},
+		{"offset only", "/accounts?offset=4", 20, 4, []domain.Account{acc}, ""},
+		{"empty page", "/accounts?limit=2&offset=100", 2, 100, []domain.Account{}, ""},
+		{"nil results become an empty array", "/accounts", 20, 0, nil, ""},
+		{"EUR filter with pagination", "/accounts?currency=EUR&limit=2&offset=3", 2, 3, []domain.Account{acc}, domain.CurrencyEUR},
+		{"USD filter", "/accounts?currency=USD", 20, 0, []domain.Account{}, domain.CurrencyUSD},
+		{"GBP filter", "/accounts?currency=GBP", 20, 0, []domain.Account{}, domain.CurrencyGBP},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			service := fakeAccountService{getUserAccountsFn: func(ctx context.Context, id uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+			service := fakeAccountService{getUserAccountsFn: func(ctx context.Context, id uuid.UUID, query application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				calls++
 				resolved, ok := users.UserFromContext(ctx)
 				if !ok || resolved.ID != caller || id != caller {
 					t.Error("authenticated caller did not reach the supplied service")
 				}
-				if limit != tc.limit || offset != tc.offset {
-					t.Errorf("got limit=%d offset=%d, want limit=%d offset=%d", limit, offset, tc.limit, tc.offset)
+				if query.Limit != tc.limit || query.Offset != tc.offset {
+					t.Errorf("got limit=%d offset=%d, want limit=%d offset=%d", query.Limit, query.Offset, tc.limit, tc.offset)
 				}
-				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: limit, Offset: offset}, nil
+				if tc.currency == "" {
+					if query.Currency != nil {
+						t.Errorf("omitted currency should produce a nil filter, got %q", *query.Currency)
+					}
+				} else if query.Currency == nil || *query.Currency != tc.currency {
+					t.Errorf("currency filter was not forwarded: got %v, want %q", query.Currency, tc.currency)
+				}
+				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: query.Limit, Offset: query.Offset}, nil
 			}}
 			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(service), testVerifier{}, testUsers{})
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil).WithContext(t.Context())
@@ -469,6 +480,14 @@ func TestListAccountsRouteRejectsRequestsBeforeServiceCall(t *testing.T) {
 		{"invalid token", "", "Bearer invalid", http.StatusUnauthorized},
 		{"wrong auth scheme", "", "Basic abc", http.StatusUnauthorized},
 		{"authentication precedes pagination", "?limit=invalid", "", http.StatusUnauthorized},
+		{"authentication precedes currency validation", "?currency=JPY", "", http.StatusUnauthorized},
+		{"empty currency", "?currency=", "Bearer test-token", http.StatusBadRequest},
+		{"bare currency parameter", "?currency", "Bearer test-token", http.StatusBadRequest},
+		{"unsupported currency", "?currency=JPY", "Bearer test-token", http.StatusBadRequest},
+		{"lowercase EUR", "?currency=eur", "Bearer test-token", http.StatusBadRequest},
+		{"lowercase USD", "?currency=usd", "Bearer test-token", http.StatusBadRequest},
+		{"lowercase GBP", "?currency=gbp", "Bearer test-token", http.StatusBadRequest},
+		{"padded currency", "?currency=%20EUR%20", "Bearer test-token", http.StatusBadRequest},
 		{"zero limit", "?limit=0", "Bearer test-token", http.StatusBadRequest},
 		{"negative limit", "?limit=-1", "Bearer test-token", http.StatusBadRequest},
 		{"excessive limit", "?limit=101", "Bearer test-token", http.StatusBadRequest},
@@ -480,7 +499,7 @@ func TestListAccountsRouteRejectsRequestsBeforeServiceCall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				calls++
 				return domain.PaginatedAccountsResponse{}, nil
 			}}
@@ -499,6 +518,9 @@ func TestListAccountsRouteRejectsRequestsBeforeServiceCall(t *testing.T) {
 			if len(body) != 1 || body["error"] == "" {
 				t.Errorf("unexpected error response: %s", res.Body.String())
 			}
+			if tc.status == http.StatusBadRequest && strings.HasPrefix(tc.query, "?currency") && body["error"] != "invalid currency" {
+				t.Errorf("got error %q, want invalid currency", body["error"])
+			}
 			if tc.status == http.StatusUnauthorized && res.Header().Get("WWW-Authenticate") != "Bearer" {
 				t.Error("missing Bearer challenge")
 			}
@@ -516,7 +538,7 @@ func TestListAccountsRouteHandlesServiceErrors(t *testing.T) {
 		{"service failure", errors.New("private database connection details"), http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				return domain.PaginatedAccountsResponse{}, tc.err
 			}}
 			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(service), testVerifier{}, testUsers{})

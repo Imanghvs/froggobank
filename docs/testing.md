@@ -27,10 +27,18 @@ ownership, and protected HTTP routes. Automated tests never require live Keycloa
 Domain and application tests run without a database. Application tests fake the
 repository port; HTTP tests fake the application service boundary.
 
-Account-listing tests cover caller and pagination forwarding, unauthenticated
-requests, pagination validation, public JSON fields, exclusion of owner IDs,
-empty arrays, and service errors. PostgreSQL tests verify ownership filtering,
-ordering (including equal timestamps), page boundaries, and cancellation.
+Account-listing handler and router tests cover caller, pagination, and currency
+forwarding, including a nil filter when currency is omitted. They verify that
+EUR, USD, and GBP are accepted, while empty, unsupported, lowercase, and padded
+values return 400 without calling the service. Router tests also verify that
+authentication precedes currency validation. Existing cases cover pagination
+validation, public JSON fields, exclusion of owner IDs, empty arrays, and service
+errors.
+
+Application tests verify that the caller, context, and complete `AccountFilter`
+reach the repository unchanged. PostgreSQL tests verify ownership and currency
+filtering before limit and offset, ordering (including equal timestamps), empty
+matches, page boundaries, and cancellation.
 
 Run the listing tests without a database:
 

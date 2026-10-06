@@ -8,7 +8,6 @@ import (
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 )
 
-// Repository is the persistence capability required by the account use cases.
 type Repository interface {
 	Create(ctx context.Context, acc domain.Account) error
 	// GetByID returns domain.ErrNotFound when the account does not exist.
@@ -18,7 +17,6 @@ type Repository interface {
 	GetUserAccounts(
 		ctx context.Context,
 		userID uuid.UUID,
-		limit int,
-		offset int,
+		query AccountFilter,
 	) (domain.PaginatedAccountsResponse, error)
 }

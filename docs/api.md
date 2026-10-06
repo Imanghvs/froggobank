@@ -22,7 +22,7 @@ or transfer HTTP endpoint is provided.
 ## List Accounts
 
 ```http
-GET /accounts?limit=2&offset=0
+GET /accounts?currency=EUR&limit=2&offset=0
 Authorization: Bearer <access token>
 ```
 
@@ -30,11 +30,20 @@ Authorization: Bearer <access token>
 | --- | --- | --- |
 | `limit` | `20` | Integer from 1 to 100 |
 | `offset` | `0` | Nonnegative integer; number of matching accounts to skip |
+| `currency` | Omitted (all currencies) | Exactly `EUR`, `USD`, or `GBP` |
 
 Only accounts owned by the authenticated caller are included. Other users'
 accounts and unowned internal accounts are excluded. Results are ordered by
 `created_at DESC, id DESC`; the ID breaks ties when timestamps match. Pagination
-is applied after ownership filtering.
+is applied after ownership and optional currency filtering. For example,
+`?currency=EUR&limit=2&offset=1` skips the newest matching EUR account and
+returns up to the next two EUR accounts owned by the caller.
+
+Omitting `currency` includes all supported currencies. Supplying an empty value
+(`?currency=` or `?currency`), an unsupported code such as `JPY`, a lowercase
+code such as `eur`, or surrounding whitespace returns HTTP 400. Currency values
+are not trimmed or converted to uppercase. Authentication runs before query
+validation.
 
 Example HTTP 200 response:
 
@@ -60,9 +69,9 @@ fewer than `limit` accounts, and no total count is returned. Separate requests
 do not share a database snapshot, so newly created accounts can shift later
 pages.
 
-When the caller has no accounts, or the offset is beyond the matching results,
-the endpoint returns HTTP 200 with an empty array. For a caller without accounts,
-the default request returns:
+When no owned accounts match the filter, or the offset is beyond the matching
+results, the endpoint returns HTTP 200 with an empty array. For a caller without
+accounts, the default request returns:
 
 ```json
 {"accounts": [], "limit": 20, "offset": 0}
@@ -71,14 +80,20 @@ the default request returns:
 | Status | Meaning |
 | --- | --- |
 | `200` | Page returned, including an empty page |
-| `400` | Invalid pagination; the service is not called |
+| `400` | Invalid pagination or currency; the service is not called |
 | `401` | Missing or invalid authentication, with a Bearer challenge |
 | `500` | Account listing failed; internal error details are not exposed |
 
-Example validation response:
+Example pagination validation response:
 
 ```json
 {"error": "limit must be 1-100 and offset must be nonnegative integers"}
+```
+
+Example currency validation response:
+
+```json
+{"error": "invalid currency"}
 ```
 
 ## Health Checks

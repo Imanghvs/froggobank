@@ -63,13 +63,12 @@ func (s *Service) GetAccountByID(ctx context.Context, callerID, id uuid.UUID) (d
 func (s *Service) GetUserAccounts(
 	ctx context.Context,
 	userID uuid.UUID,
-	limit int,
-	offset int,
+	filter AccountFilter,
 ) (domain.PaginatedAccountsResponse, error) {
 	if userID == uuid.Nil {
 		return domain.PaginatedAccountsResponse{}, user.ErrUnauthenticated
 	}
-	res, err := s.repository.GetUserAccounts(ctx, userID, limit, offset)
+	res, err := s.repository.GetUserAccounts(ctx, userID, filter)
 	if err != nil {
 		return domain.PaginatedAccountsResponse{}, err
 	}
