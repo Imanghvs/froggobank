@@ -25,8 +25,9 @@ remain public. Request logs contain no authorization headers, request bodies,
 or query parameters.
 
 [Account listing](api.md#list-accounts) filters by the authenticated user's ID
-before applying pagination. It excludes unowned internal accounts and returns
-an empty array when no owned accounts match.
+and optional currency before applying pagination. It excludes unowned internal
+accounts and returns an empty array when no owned accounts match. Currency
+filtering never expands access to another user's accounts.
 
 The first authenticated request provisions a local user. A database unique
 constraint on `(issuer, subject)` handles concurrent provisioning. Email is not

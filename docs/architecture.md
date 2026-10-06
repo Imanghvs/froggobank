@@ -39,9 +39,16 @@ root also wires OIDC verification and user persistence into authentication
 middleware. Account application use cases require the caller ID explicitly and
 check ownership independently of HTTP middleware.
 
-For account listing, the HTTP adapter parses and validates pagination and passes
-the trusted caller ID to the application service. The PostgreSQL adapter filters
-by owner and applies deterministic ordering, limit, and offset. The HTTP adapter
+For account listing, the HTTP adapter binds query parameters to
+`getUserAccountsQuery` and validates pagination. It parses an optional currency
+through `domain.ParseCurrency`, then constructs `application.AccountFilter`
+with limit, offset, and an optional `*domain.Currency`. A nil currency means no
+currency filter. The application service and repository port share this filter;
+the trusted caller ID remains a separate argument.
+
+The PostgreSQL adapter filters by owner and optional currency before applying
+deterministic ordering, limit, and offset. It assembles fixed SQL fragments and
+passes all values as query parameters. The HTTP adapter
 maps the resulting domain accounts to public response DTOs, including an empty
 JSON array for empty pages. JSON field names and transport binding rules stay
 in the HTTP adapter.

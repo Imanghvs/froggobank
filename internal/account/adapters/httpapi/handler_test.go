@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
@@ -22,7 +23,7 @@ type fakeService struct {
 	createAccountFn     func(context.Context, uuid.UUID, string) (domain.Account, error)
 	getAccountByIDFn    func(context.Context, uuid.UUID, uuid.UUID) (domain.Account, error)
 	getAccountBalanceFn func(context.Context, uuid.UUID, uuid.UUID) (domain.Balance, error)
-	getUserAccounts     func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error)
+	getUserAccounts     func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error)
 }
 
 func (f fakeService) CreateAccount(ctx context.Context, caller uuid.UUID, currency string) (domain.Account, error) {
@@ -34,8 +35,8 @@ func (f fakeService) GetAccountByID(ctx context.Context, caller, id uuid.UUID) (
 func (f fakeService) GetAccountBalance(ctx context.Context, caller, id uuid.UUID) (domain.Balance, error) {
 	return f.getAccountBalanceFn(ctx, caller, id)
 }
-func (f fakeService) GetUserAccounts(ctx context.Context, caller uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
-	return f.getUserAccounts(ctx, caller, limit, offset)
+func (f fakeService) GetUserAccounts(ctx context.Context, caller uuid.UUID, query application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
+	return f.getUserAccounts(ctx, caller, query)
 }
 
 func setupTestRouter(t *testing.T, s AccountService) *gin.Engine {
@@ -218,27 +219,38 @@ func TestGetUserAccountsUsesCallerAndPagination(t *testing.T) {
 		limit    int
 		offset   int
 		accounts []domain.Account
+		currency domain.Currency
 	}{
-		{"defaults", "", 20, 0, []domain.Account{acc}},
-		{"explicit pagination", "?limit=2&offset=3", 2, 3, []domain.Account{acc}},
-		{"limit only", "?limit=1", 1, 0, []domain.Account{acc}},
-		{"offset only", "?offset=5", 20, 5, []domain.Account{acc}},
-		{"maximum limit", "?limit=100&offset=0", 100, 0, []domain.Account{acc}},
-		{"empty results", "", 20, 0, []domain.Account{}},
-		{"nil results become an empty array", "", 20, 0, nil},
+		{"defaults", "", 20, 0, []domain.Account{acc}, ""},
+		{"explicit pagination", "?limit=2&offset=3", 2, 3, []domain.Account{acc}, ""},
+		{"limit only", "?limit=1", 1, 0, []domain.Account{acc}, ""},
+		{"offset only", "?offset=5", 20, 5, []domain.Account{acc}, ""},
+		{"maximum limit", "?limit=100&offset=0", 100, 0, []domain.Account{acc}, ""},
+		{"empty results", "", 20, 0, []domain.Account{}, ""},
+		{"nil results become an empty array", "", 20, 0, nil, ""},
+		{"EUR filter with pagination", "?currency=EUR&limit=2&offset=3", 2, 3, []domain.Account{acc}, domain.CurrencyEUR},
+		{"USD filter", "?currency=USD", 20, 0, []domain.Account{}, domain.CurrencyUSD},
+		{"GBP filter", "?currency=GBP", 20, 0, []domain.Account{}, domain.CurrencyGBP},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			s := fakeService{getUserAccounts: func(ctx context.Context, id uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+			s := fakeService{getUserAccounts: func(ctx context.Context, id uuid.UUID, query application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				calls++
 				resolved, ok := users.UserFromContext(ctx)
 				if !ok || resolved.ID != caller || id != caller {
 					t.Error("authenticated caller or context lost")
 				}
-				if limit != tc.limit || offset != tc.offset {
-					t.Errorf("got limit=%d offset=%d, want limit=%d offset=%d", limit, offset, tc.limit, tc.offset)
+				if query.Limit != tc.limit || query.Offset != tc.offset {
+					t.Errorf("got limit=%d offset=%d, want limit=%d offset=%d", query.Limit, query.Offset, tc.limit, tc.offset)
 				}
-				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: limit, Offset: offset}, nil
+				if tc.currency == "" {
+					if query.Currency != nil {
+						t.Errorf("omitted currency should produce a nil filter, got %q", *query.Currency)
+					}
+				} else if query.Currency == nil || *query.Currency != tc.currency {
+					t.Errorf("currency filter was not forwarded: got %v, want %q", query.Currency, tc.currency)
+				}
+				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: query.Limit, Offset: query.Offset}, nil
 			}}
 			res := request(t, setupTestRouter(t, s), caller, http.MethodGet, "/accounts"+tc.query, "")
 			if res.Code != http.StatusOK || calls != 1 {
@@ -301,7 +313,7 @@ func TestGetUserAccountsRejectsInvalidPagination(t *testing.T) {
 	} {
 		t.Run(query, func(t *testing.T) {
 			calls := 0
-			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				calls++
 				return domain.PaginatedAccountsResponse{}, nil
 			}}
@@ -310,6 +322,26 @@ func TestGetUserAccountsRejectsInvalidPagination(t *testing.T) {
 				t.Errorf("invalid pagination reached service %d times", calls)
 			}
 			assertError(t, res, http.StatusBadRequest, "limit must be 1-100 and offset must be nonnegative integers")
+		})
+	}
+}
+
+func TestGetUserAccountsRejectsInvalidCurrency(t *testing.T) {
+	for _, query := range []string{
+		"?currency=", "?currency", "?currency=JPY", "?currency=eur",
+		"?currency=usd", "?currency=gbp", "?currency=%20EUR%20",
+	} {
+		t.Run(query, func(t *testing.T) {
+			calls := 0
+			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
+				calls++
+				return domain.PaginatedAccountsResponse{}, nil
+			}}
+			res := request(t, setupTestRouter(t, s), uuid.New(), http.MethodGet, "/accounts"+query, "")
+			if calls != 0 {
+				t.Errorf("invalid currency reached service %d times", calls)
+			}
+			assertError(t, res, http.StatusBadRequest, "invalid currency")
 		})
 	}
 }
@@ -325,7 +357,7 @@ func TestGetUserAccountsErrors(t *testing.T) {
 		{"service failure", errors.New("secret database detail"), http.StatusInternalServerError, "failed to fetch account"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
 				return domain.PaginatedAccountsResponse{}, tc.err
 			}}
 			res := request(t, setupTestRouter(t, s), uuid.New(), http.MethodGet, "/accounts", "")

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	testdb "github.com/Imanghvs/froggobank/internal/testutil/postgres"
 )
@@ -151,33 +152,51 @@ func TestRepositoryGetUserAccounts(t *testing.T) {
 	newerHighID := createAccount("00000000-0000-0000-0000-000000000004", ownerID, domain.CurrencyEUR, createdAt.Add(2*time.Hour))
 	other := createAccount("00000000-0000-0000-0000-000000000005", otherOwnerID, domain.CurrencyUSD, createdAt.Add(3*time.Hour))
 	createAccount("00000000-0000-0000-0000-000000000006", uuid.Nil, domain.CurrencyGBP, createdAt.Add(4*time.Hour))
+	otherEUR := createAccount("00000000-0000-0000-0000-000000000007", otherOwnerID, domain.CurrencyEUR, createdAt.Add(5*time.Hour))
 	ordered := []domain.Account{newerHighID, newerLowID, middle, oldest}
+	eur, usd, gbp := domain.CurrencyEUR, domain.CurrencyUSD, domain.CurrencyGBP
 
 	for _, tc := range []struct {
-		name   string
-		owner  uuid.UUID
-		limit  int
-		offset int
-		want   []domain.Account
+		name     string
+		owner    uuid.UUID
+		limit    int
+		offset   int
+		currency *domain.Currency
+		want     []domain.Account
 	}{
-		{"all owned accounts", ownerID, 20, 0, ordered},
-		{"first page", ownerID, 2, 0, ordered[:2]},
-		{"offset within results", ownerID, 2, 1, ordered[1:3]},
-		{"partial final page", ownerID, 2, 3, ordered[3:]},
-		{"offset at end", ownerID, 2, 4, nil},
-		{"offset beyond end", ownerID, 2, 10, nil},
-		{"another owner's accounts", otherOwnerID, 20, 0, []domain.Account{other}},
-		{"owner without accounts", emptyOwnerID, 20, 0, nil},
-		{"unknown owner", uuid.New(), 20, 0, nil},
-		{"nil owner excludes internal accounts", uuid.Nil, 20, 0, nil},
+		{"all owned accounts", ownerID, 20, 0, nil, ordered},
+		{"first page", ownerID, 2, 0, nil, ordered[:2]},
+		{"offset within results", ownerID, 2, 1, nil, ordered[1:3]},
+		{"partial final page", ownerID, 2, 3, nil, ordered[3:]},
+		{"offset at end", ownerID, 2, 4, nil, nil},
+		{"offset beyond end", ownerID, 2, 10, nil, nil},
+		{"another owner's accounts", otherOwnerID, 20, 0, nil, []domain.Account{otherEUR, other}},
+		{"owner without accounts", emptyOwnerID, 20, 0, nil, nil},
+		{"unknown owner", uuid.New(), 20, 0, nil, nil},
+		{"nil owner excludes internal accounts", uuid.Nil, 20, 0, nil, nil},
+		{"EUR filter preserves order and ownership", ownerID, 20, 0, &eur, []domain.Account{newerHighID, oldest}},
+		{"USD filter", ownerID, 20, 0, &usd, []domain.Account{middle}},
+		{"GBP filter excludes internal accounts", ownerID, 20, 0, &gbp, []domain.Account{newerLowID}},
+		{"currency filter before limit", ownerID, 1, 0, &usd, []domain.Account{middle}},
+		{"currency filter before offset", ownerID, 1, 1, &eur, []domain.Account{oldest}},
+		{"filtered offset at end", ownerID, 2, 2, &eur, nil},
+		{"filtered offset beyond end", ownerID, 2, 10, &eur, nil},
+		{"no matching currency", otherOwnerID, 20, 0, &gbp, nil},
+		{"filtered owner without accounts", emptyOwnerID, 20, 0, &eur, nil},
+		{"filtered nil owner excludes internal accounts", uuid.Nil, 20, 0, &gbp, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := repo.GetUserAccounts(t.Context(), tc.owner, tc.limit, tc.offset)
+			got, err := repo.GetUserAccounts(t.Context(), tc.owner, application.AccountFilter{
+				Limit: tc.limit, Offset: tc.offset, Currency: tc.currency,
+			})
 			if err != nil {
 				t.Fatalf("get user accounts: %v", err)
 			}
 			if got.Limit != tc.limit || got.Offset != tc.offset {
 				t.Errorf("pagination metadata: got limit=%d offset=%d, want limit=%d offset=%d", got.Limit, got.Offset, tc.limit, tc.offset)
+			}
+			if got.Accounts == nil {
+				t.Error("expected a non-nil accounts slice")
 			}
 			if len(got.Accounts) != len(tc.want) {
 				t.Fatalf("got %d accounts, want %d", len(got.Accounts), len(tc.want))
@@ -196,7 +215,7 @@ func TestRepositoryGetUserAccounts(t *testing.T) {
 	t.Run("canceled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		if _, err := repo.GetUserAccounts(ctx, ownerID, 20, 0); !errors.Is(err, context.Canceled) {
+		if _, err := repo.GetUserAccounts(ctx, ownerID, application.AccountFilter{Limit: 20}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	})

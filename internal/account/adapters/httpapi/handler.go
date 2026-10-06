@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
@@ -137,15 +138,35 @@ func (h *Handler) GetUserAccounts(c *gin.Context) {
 		unauthorized(c)
 		return
 	}
-	var page PaginationQuery
-	if err := c.ShouldBindQuery(&page); err != nil {
+	var query getUserAccountsQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "limit must be 1-100 and offset must be nonnegative integers",
 		})
 		return
 	}
 
-	res, err := h.service.GetUserAccounts(c.Request.Context(), caller.ID, page.Limit, page.Offset)
+	var currency *domain.Currency
+	if query.Currency != nil {
+		parsed, err := domain.ParseCurrency(*query.Currency)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "invalid currency",
+			})
+			return
+		}
+		currency = &parsed
+	}
+
+	res, err := h.service.GetUserAccounts(
+		c.Request.Context(),
+		caller.ID,
+		application.AccountFilter{
+			Limit:    query.Limit,
+			Offset:   query.Offset,
+			Currency: currency,
+		},
+	)
 	if err != nil {
 		if errors.Is(err, user.ErrUnauthenticated) {
 			unauthorized(c)
