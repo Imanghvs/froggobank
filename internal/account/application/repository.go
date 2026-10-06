@@ -15,4 +15,10 @@ type Repository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Account, error)
 	// GetBalance reads a committed projection; missing accounts return ErrNotFound.
 	GetBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error)
+	GetUserAccounts(
+		ctx context.Context,
+		userID uuid.UUID,
+		limit int,
+		offset int,
+	) (domain.PaginatedAccountsResponse, error)
 }

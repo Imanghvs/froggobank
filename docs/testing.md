@@ -27,6 +27,31 @@ ownership, and protected HTTP routes. Automated tests never require live Keycloa
 Domain and application tests run without a database. Application tests fake the
 repository port; HTTP tests fake the application service boundary.
 
+Account-listing tests cover caller and pagination forwarding, unauthenticated
+requests, pagination validation, public JSON fields, exclusion of owner IDs,
+empty arrays, and service errors. PostgreSQL tests verify ownership filtering,
+ordering (including equal timestamps), page boundaries, and cancellation.
+
+Run the listing tests without a database:
+
+```bash
+go test ./internal/account/application -run '^TestGetUserAccounts' -v -count=1
+go test ./internal/account/adapters/httpapi -run '^TestGetUserAccounts|^TestHandlersRequireAuthentication' -v -count=1
+go test ./internal/server -run '^TestListAccountsRoute|^TestProtectedRoutes' -v -count=1
+```
+
+Run the repository listing test against an existing test database:
+
+```bash
+TEST_DATABASE_URL='postgres://froggobank:froggobank@localhost:5432/froggobank_test?sslmode=disable' \
+go test ./internal/account/adapters/postgres -run '^TestRepositoryGetUserAccounts$' -v -count=1
+```
+
+This repository listing test applies the migrations in a disposable schema and
+removes that schema afterward. The database role needs permission to create and
+drop schemas. Other tests that use the database's default schema still require
+the migrations below when running the complete suite.
+
 Money and ledger unit tests cover currency precision, arithmetic overflow,
 posting structure, per-currency balancing, and rejection before persistence.
 Ledger PostgreSQL tests cover round trips, partial-write rollback, database

@@ -17,12 +17,16 @@ access tokens and other token profiles are not supported in this version.
 Discovery must succeed at API startup. HTTPS is required except for explicitly
 enabled local loopback development.
 
-`GET /me`, `POST /accounts`, `GET /accounts/{id}`, and
+`GET /me`, `POST /accounts`, `GET /accounts`, `GET /accounts/{id}`, and
 `GET /accounts/{id}/balance` require authentication. Missing, invalid, or expired
 credentials return 401 with a Bearer challenge. Account lookups return 404 for
 both unknown accounts and accounts the caller does not own. Health/readiness
 remain public. Request logs contain no authorization headers, request bodies,
 or query parameters.
+
+[Account listing](api.md#list-accounts) filters by the authenticated user's ID
+before applying pagination. It excludes unowned internal accounts and returns
+an empty array when no owned accounts match.
 
 The first authenticated request provisions a local user. A database unique
 constraint on `(issuer, subject)` handles concurrent provisioning. Email is not

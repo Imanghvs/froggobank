@@ -21,7 +21,7 @@ for configuration, login, logs, and shutdown.
 
 For development on the host:
 
-You need Go 1.25+, PostgreSQL, and an OIDC identity provider. The
+You need Go 1.27.1+, PostgreSQL, and an OIDC identity provider. The
 [local setup guide](docs/getting-started.md) covers Keycloak, database migrations,
 and obtaining an access token.
 

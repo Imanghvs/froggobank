@@ -22,6 +22,7 @@ type fakeService struct {
 	createAccountFn     func(context.Context, uuid.UUID, string) (domain.Account, error)
 	getAccountByIDFn    func(context.Context, uuid.UUID, uuid.UUID) (domain.Account, error)
 	getAccountBalanceFn func(context.Context, uuid.UUID, uuid.UUID) (domain.Balance, error)
+	getUserAccounts     func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error)
 }
 
 func (f fakeService) CreateAccount(ctx context.Context, caller uuid.UUID, currency string) (domain.Account, error) {
@@ -33,6 +34,10 @@ func (f fakeService) GetAccountByID(ctx context.Context, caller, id uuid.UUID) (
 func (f fakeService) GetAccountBalance(ctx context.Context, caller, id uuid.UUID) (domain.Balance, error) {
 	return f.getAccountBalanceFn(ctx, caller, id)
 }
+func (f fakeService) GetUserAccounts(ctx context.Context, caller uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+	return f.getUserAccounts(ctx, caller, limit, offset)
+}
+
 func setupTestRouter(t *testing.T, s AccountService) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -41,6 +46,7 @@ func setupTestRouter(t *testing.T, s AccountService) *gin.Engine {
 	r.POST("/accounts", h.Create)
 	r.GET("/accounts/:id", h.GetByID)
 	r.GET("/accounts/:id/balance", h.GetBalance)
+	r.GET("/accounts", h.GetUserAccounts)
 	return r
 }
 func request(t *testing.T, r *gin.Engine, caller uuid.UUID, method, path, body string) *httptest.ResponseRecorder {
@@ -103,6 +109,8 @@ func TestHandlersRequireAuthenticationEvenWithoutMiddleware(t *testing.T) {
 		{http.MethodPost, "/accounts", `{"currency":"EUR"}`},
 		{http.MethodGet, "/accounts/" + uuid.NewString(), ""},
 		{http.MethodGet, "/accounts/" + uuid.NewString() + "/balance", ""},
+		{http.MethodGet, "/accounts", ""},
+		{http.MethodGet, "/accounts?limit=invalid", ""},
 	} {
 		res := request(t, setupTestRouter(t, fakeService{}), uuid.Nil, tc.method, tc.path, tc.body)
 		assertError(t, res, http.StatusUnauthorized, "unauthenticated")
@@ -195,5 +203,136 @@ func TestReadErrors(t *testing.T) {
 			}
 			assertError(t, request(t, setupTestRouter(t, s), uuid.New(), http.MethodGet, path, ""), tc.status, message)
 		}
+	}
+}
+
+func TestGetUserAccountsUsesCallerAndPagination(t *testing.T) {
+	caller := uuid.New()
+	acc, err := domain.NewCustomer(domain.CurrencyEUR, caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		query    string
+		limit    int
+		offset   int
+		accounts []domain.Account
+	}{
+		{"defaults", "", 20, 0, []domain.Account{acc}},
+		{"explicit pagination", "?limit=2&offset=3", 2, 3, []domain.Account{acc}},
+		{"limit only", "?limit=1", 1, 0, []domain.Account{acc}},
+		{"offset only", "?offset=5", 20, 5, []domain.Account{acc}},
+		{"maximum limit", "?limit=100&offset=0", 100, 0, []domain.Account{acc}},
+		{"empty results", "", 20, 0, []domain.Account{}},
+		{"nil results become an empty array", "", 20, 0, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			s := fakeService{getUserAccounts: func(ctx context.Context, id uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+				calls++
+				resolved, ok := users.UserFromContext(ctx)
+				if !ok || resolved.ID != caller || id != caller {
+					t.Error("authenticated caller or context lost")
+				}
+				if limit != tc.limit || offset != tc.offset {
+					t.Errorf("got limit=%d offset=%d, want limit=%d offset=%d", limit, offset, tc.limit, tc.offset)
+				}
+				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: limit, Offset: offset}, nil
+			}}
+			res := request(t, setupTestRouter(t, s), caller, http.MethodGet, "/accounts"+tc.query, "")
+			if res.Code != http.StatusOK || calls != 1 {
+				t.Fatalf("status=%d service calls=%d: %s", res.Code, calls, res.Body.String())
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(res.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("decode response keys: %v", err)
+			}
+			if len(raw) != 3 {
+				t.Fatalf("expected only accounts, limit, and offset: %s", res.Body.String())
+			}
+			for _, key := range []string{"accounts", "limit", "offset"} {
+				if _, ok := raw[key]; !ok {
+					t.Fatalf("missing JSON key %q: %s", key, res.Body.String())
+				}
+			}
+			var rawAccounts []map[string]json.RawMessage
+			if err := json.Unmarshal(raw["accounts"], &rawAccounts); err != nil {
+				t.Fatalf("decode account keys: %v", err)
+			}
+			if rawAccounts == nil {
+				t.Fatal("accounts must be an array, not null")
+			}
+			for _, rawAccount := range rawAccounts {
+				if len(rawAccount) != 5 {
+					t.Fatalf("unexpected account fields (owner ID must be excluded): %s", res.Body.String())
+				}
+				for _, key := range []string{"id", "currency", "account_type", "enforce_nonnegative_balance", "created_at"} {
+					if _, ok := rawAccount[key]; !ok {
+						t.Fatalf("missing account JSON key %q", key)
+					}
+				}
+			}
+			var body paginatedAccountsResponse
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode list response: %v", err)
+			}
+			if body.Limit != tc.limit || body.Offset != tc.offset || body.Accounts == nil || len(body.Accounts) != len(tc.accounts) {
+				t.Fatalf("unexpected list response: %s", res.Body.String())
+			}
+			for i, want := range tc.accounts {
+				got := body.Accounts[i]
+				if got.ID != want.ID || got.Currency != string(want.Currency) ||
+					got.AccountType != string(want.Type) || got.EnforceNonnegativeBalance != want.EnforceNonnegativeBalance ||
+					!got.CreatedAt.Equal(want.CreatedAt) {
+					t.Errorf("account %d: got %+v, want %+v", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestGetUserAccountsRejectsInvalidPagination(t *testing.T) {
+	for _, query := range []string{
+		"?limit=0", "?limit=-1", "?limit=101", "?limit=abc", "?limit=1.5",
+		"?limit=999999999999999999999999",
+		"?offset=-1", "?offset=abc", "?offset=1.5",
+		"?offset=999999999999999999999999",
+	} {
+		t.Run(query, func(t *testing.T) {
+			calls := 0
+			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+				calls++
+				return domain.PaginatedAccountsResponse{}, nil
+			}}
+			res := request(t, setupTestRouter(t, s), uuid.New(), http.MethodGet, "/accounts"+query, "")
+			if calls != 0 {
+				t.Errorf("invalid pagination reached service %d times", calls)
+			}
+			assertError(t, res, http.StatusBadRequest, "limit must be 1-100 and offset must be nonnegative integers")
+		})
+	}
+}
+
+func TestGetUserAccountsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		status  int
+		message string
+	}{
+		{"unauthenticated", user.ErrUnauthenticated, http.StatusUnauthorized, "unauthenticated"},
+		{"service failure", errors.New("secret database detail"), http.StatusInternalServerError, "failed to fetch account"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fakeService{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+				return domain.PaginatedAccountsResponse{}, tc.err
+			}}
+			res := request(t, setupTestRouter(t, s), uuid.New(), http.MethodGet, "/accounts", "")
+			assertError(t, res, tc.status, tc.message)
+			if tc.status == http.StatusUnauthorized && res.Header().Get("WWW-Authenticate") != "Bearer" {
+				t.Error("missing bearer challenge")
+			}
+		})
 	}
 }

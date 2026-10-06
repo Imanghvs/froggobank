@@ -99,3 +99,51 @@ func (r *Repository) GetBalance(ctx context.Context, id uuid.UUID) (domain.Balan
 	}
 	return domain.NewBalance(acc, debits, credits)
 }
+
+func (r *Repository) GetUserAccounts(
+	ctx context.Context,
+	userID uuid.UUID,
+	limit int,
+	offset int,
+) (domain.PaginatedAccountsResponse, error) {
+	accounts := []domain.Account{}
+	rows, err := r.pool.Query(
+		ctx,
+		`SELECT id, currency, created_at, account_type, enforce_nonnegative_balance, owner_id
+		FROM accounts
+		WHERE owner_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2
+		OFFSET $3`,
+		userID,
+		limit,
+		offset,
+	)
+	if err != nil {
+		return domain.PaginatedAccountsResponse{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var acc domain.Account
+		err := rows.Scan(
+			&acc.ID,
+			&acc.Currency,
+			&acc.CreatedAt,
+			&acc.Type,
+			&acc.EnforceNonnegativeBalance,
+			&acc.OwnerID,
+		)
+		if err != nil {
+			return domain.PaginatedAccountsResponse{}, err
+		}
+		accounts = append(accounts, acc)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.PaginatedAccountsResponse{}, err
+	}
+	return domain.PaginatedAccountsResponse{
+		Accounts: accounts,
+		Limit:    limit,
+		Offset:   offset,
+	}, nil
+}

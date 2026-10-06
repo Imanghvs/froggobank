@@ -58,6 +58,7 @@ func NewRouter(
 	protected.POST("/accounts", accountHandler.Create)
 	protected.GET("/accounts/:id", accountHandler.GetByID)
 	protected.GET("/accounts/:id/balance", accountHandler.GetBalance)
+	protected.GET("/accounts", accountHandler.GetUserAccounts)
 
 	return router
 }
