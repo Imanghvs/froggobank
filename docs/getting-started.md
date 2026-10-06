@@ -9,7 +9,7 @@ To run the complete stack without installing Go or Goose, use the
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.27.1+
 - A running PostgreSQL instance and an existing database
 - Docker Compose for the supplied local Keycloak environment
 - Goose for applying migrations

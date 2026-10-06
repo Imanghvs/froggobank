@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,13 +14,6 @@ import (
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
 )
-
-// AccountService is the application capability required by the HTTP adapter.
-type AccountService interface {
-	CreateAccount(ctx context.Context, callerID uuid.UUID, currencyCode string) (domain.Account, error)
-	GetAccountByID(ctx context.Context, callerID, id uuid.UUID) (domain.Account, error)
-	GetAccountBalance(ctx context.Context, callerID, id uuid.UUID) (domain.Balance, error)
-}
 
 type Handler struct {
 	service AccountService
@@ -43,6 +35,12 @@ type accountResponse struct {
 	AccountType               string    `json:"account_type"`
 	EnforceNonnegativeBalance bool      `json:"enforce_nonnegative_balance"`
 	CreatedAt                 time.Time `json:"created_at"`
+}
+
+type paginatedAccountsResponse struct {
+	Accounts []accountResponse `json:"accounts"`
+	Limit    int               `json:"limit"`
+	Offset   int               `json:"offset"`
 }
 
 func (h *Handler) Create(c *gin.Context) {
@@ -131,6 +129,49 @@ func (h *Handler) GetByID(c *gin.Context) {
 		EnforceNonnegativeBalance: acc.EnforceNonnegativeBalance,
 		CreatedAt:                 acc.CreatedAt,
 	})
+}
+
+func (h *Handler) GetUserAccounts(c *gin.Context) {
+	caller, ok := users.UserFromContext(c.Request.Context())
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	var page PaginationQuery
+	if err := c.ShouldBindQuery(&page); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "limit must be 1-100 and offset must be nonnegative integers",
+		})
+		return
+	}
+
+	res, err := h.service.GetUserAccounts(c.Request.Context(), caller.ID, page.Limit, page.Offset)
+	if err != nil {
+		if errors.Is(err, user.ErrUnauthenticated) {
+			unauthorized(c)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to fetch account",
+		})
+		return
+	}
+
+	response := paginatedAccountsResponse{
+		Accounts: make([]accountResponse, 0, len(res.Accounts)),
+		Limit:    res.Limit,
+		Offset:   res.Offset,
+	}
+	for _, acc := range res.Accounts {
+		response.Accounts = append(response.Accounts, accountResponse{
+			ID:                        acc.ID,
+			Currency:                  string(acc.Currency),
+			AccountType:               string(acc.Type),
+			EnforceNonnegativeBalance: acc.EnforceNonnegativeBalance,
+			CreatedAt:                 acc.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) GetBalance(c *gin.Context) {

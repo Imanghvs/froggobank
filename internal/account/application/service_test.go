@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,9 +16,15 @@ import (
 )
 
 type fakeRepository struct {
-	createFn     func(context.Context, domain.Account) error
-	getByIDFn    func(context.Context, uuid.UUID) (domain.Account, error)
-	getBalanceFn func(context.Context, uuid.UUID) (domain.Balance, error)
+	createFn        func(context.Context, domain.Account) error
+	getByIDFn       func(context.Context, uuid.UUID) (domain.Account, error)
+	getBalanceFn    func(context.Context, uuid.UUID) (domain.Balance, error)
+	getUserAccounts func(
+		context.Context,
+		uuid.UUID,
+		int,
+		int,
+	) (domain.PaginatedAccountsResponse, error)
 }
 
 func (f fakeRepository) Create(ctx context.Context, a domain.Account) error {
@@ -28,6 +35,14 @@ func (f fakeRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Accou
 }
 func (f fakeRepository) GetBalance(ctx context.Context, id uuid.UUID) (domain.Balance, error) {
 	return f.getBalanceFn(ctx, id)
+}
+func (f fakeRepository) GetUserAccounts(
+	ctx context.Context,
+	userID uuid.UUID,
+	limit int,
+	offset int,
+) (domain.PaginatedAccountsResponse, error) {
+	return f.getUserAccounts(ctx, userID, limit, offset)
 }
 
 func TestCreateCustomerAccount(t *testing.T) {
@@ -72,6 +87,9 @@ func TestUnauthenticatedApplicationCallsDoNotReachRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.GetAccountBalance(t.Context(), uuid.Nil, uuid.New()); !errors.Is(err, user.ErrUnauthenticated) {
+		t.Fatal(err)
+	}
+	if _, err := s.GetUserAccounts(t.Context(), uuid.Nil, 20, 0); !errors.Is(err, user.ErrUnauthenticated) {
 		t.Fatal(err)
 	}
 }
@@ -141,5 +159,85 @@ func TestServicePreservesRepositoryErrors(t *testing.T) {
 		if _, err := s.GetAccountBalance(t.Context(), caller, a.ID); !errors.Is(err, want) {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestGetUserAccounts(t *testing.T) {
+	caller := uuid.New()
+	var accounts []domain.Account
+	for _, currency := range []domain.Currency{domain.CurrencyUSD, domain.CurrencyEUR} {
+		acc, err := domain.NewCustomer(currency, caller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		accounts = append(accounts, acc)
+	}
+	for _, tc := range []struct {
+		name     string
+		limit    int
+		offset   int
+		accounts []domain.Account
+	}{
+		{"populated page", 2, 3, accounts},
+		{"empty page", 20, 0, []domain.Account{}},
+		{"offset beyond results", 100, 1000, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := domain.PaginatedAccountsResponse{
+				Accounts: tc.accounts,
+				Limit:    tc.limit,
+				Offset:   tc.offset,
+			}
+			calls := 0
+			service := New(fakeRepository{getUserAccounts: func(ctx context.Context, userID uuid.UUID, limit, offset int) (domain.PaginatedAccountsResponse, error) {
+				calls++
+				if ctx != t.Context() || userID != caller || limit != tc.limit || offset != tc.offset {
+					t.Errorf("repository arguments changed: userID=%s limit=%d offset=%d", userID, limit, offset)
+				}
+				return want, nil
+			}})
+			got, err := service.GetUserAccounts(t.Context(), caller, tc.limit, tc.offset)
+			if err != nil {
+				t.Fatalf("get user accounts: %v", err)
+			}
+			if calls != 1 {
+				t.Errorf("repository called %d times, want 1", calls)
+			}
+			if got.Limit != want.Limit || got.Offset != want.Offset || !slices.Equal(got.Accounts, want.Accounts) {
+				t.Errorf("got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestGetUserAccountsPreservesRepositoryErrors(t *testing.T) {
+	caller := uuid.New()
+	databaseErr := errors.New("database unavailable")
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"database failure", databaseErr},
+		{"wrapped failure", fmt.Errorf("list accounts: %w", databaseErr)},
+		{"cancellation", context.Canceled},
+		{"deadline exceeded", context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := New(fakeRepository{getUserAccounts: func(context.Context, uuid.UUID, int, int) (domain.PaginatedAccountsResponse, error) {
+				// A failed read must not expose a partial result.
+				return domain.PaginatedAccountsResponse{
+					Accounts: []domain.Account{domain.New(domain.CurrencyEUR)},
+					Limit:    20,
+					Offset:   5,
+				}, tc.err
+			}})
+			got, err := service.GetUserAccounts(t.Context(), caller, 20, 5)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("got error %v, want %v", err, tc.err)
+			}
+			if got.Accounts != nil || got.Limit != 0 || got.Offset != 0 {
+				t.Errorf("failed read returned partial results: %+v", got)
+			}
+		})
 	}
 }
