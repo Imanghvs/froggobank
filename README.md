@@ -16,7 +16,8 @@ export KEYCLOAK_ADMIN_PASSWORD='choose-a-local-admin-password'
 docker compose up --build --wait --wait-timeout 300
 ```
 
-The API is available at `http://localhost:8080`. See the [Docker guide](docs/docker.md)
+The API is available at `http://localhost:8080`, with Swagger UI at
+`http://localhost:8080/docs/`. See the [Docker guide](docs/docker.md)
 for configuration, login, logs, and shutdown.
 
 For development on the host:

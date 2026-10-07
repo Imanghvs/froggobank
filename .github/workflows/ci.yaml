@@ -25,6 +25,8 @@ jobs:
         run: |
           curl --fail --silent --show-error http://localhost:8080/health
           curl --fail --silent --show-error http://localhost:8080/ready
+          curl --fail --silent --show-error http://localhost:8080/docs/ >/dev/null
+          curl --fail --silent --show-error http://localhost:8080/docs/openapi.yaml >/dev/null
 
       - name: Container logs
         if: failure()

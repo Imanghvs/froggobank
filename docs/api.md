@@ -2,6 +2,26 @@
 
 [Documentation index](README.md) · [Project overview](../README.md)
 
+The [OpenAPI specification](openapi.yaml) defines all current endpoints, request
+and response schemas, Bearer authentication, and examples for Swagger UI.
+
+## Interactive Documentation
+
+Open [Swagger UI](http://localhost:8080/docs/) when the API is running locally.
+The specification is served at `/docs/openapi.yaml`. Both the UI assets and the
+specification are embedded in the Go binary, so these routes work with
+`go run ./cmd/api`, the Docker image, and Compose.
+
+The specification uses a relative server URL (`/`), so “Try it out” targets the
+same origin as the documentation in each environment. To call protected
+endpoints, select **Authorize** and enter an access token without the `Bearer`
+prefix. Swagger UI adds the prefix to the request. Documentation is public;
+protected API operations still require authentication.
+
+Swagger UI assets are bundled locally at version 5.33.1. Documentation does not
+require a CDN or a separate Swagger container. After changing the specification,
+restart the host API or rebuild the Docker image to refresh the embedded copy.
+
 ## Endpoints
 
 | Method | Path | Authentication | Purpose |

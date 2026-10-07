@@ -10,6 +10,7 @@ Start with [Getting started](getting-started.md) to run the API locally.
 | [Docker](docker.md) | Container builds, full local stack, migrations, volumes, and shutdown |
 | [Configuration](configuration.md) | Environment variables and startup example |
 | [API](api.md) | Endpoints, authentication requirements, and health checks |
+| [OpenAPI specification](openapi.yaml) | API contract, schemas, errors, and Swagger UI examples |
 | [Architecture](architecture.md) | Modules, dependency rules, and composition root |
 | [Database schema](database.md) | Entity relationship diagrams, keys, and cardinalities |
 | [Authentication and ownership](authentication.md) | Access-token validation, user provisioning, and ownership |
