@@ -21,12 +21,21 @@ code 0 is expected.
 | Service | Address or access |
 | --- | --- |
 | API | `http://localhost:8080` |
+| Swagger UI | `http://localhost:8080/docs/` |
 | Keycloak administration | `http://localhost:8081`, user `admin` |
 | PostgreSQL | Internal Compose network, database/user/password `froggobank` |
 
 This stack is for local development: Keycloak uses development mode and the
 database uses fixed local credentials. Published ports bind only to loopback;
 PostgreSQL has no published host port.
+
+Swagger UI and its OpenAPI specification are served by the API on port 8080.
+“Try it out” uses the same origin; no separate documentation container or CORS
+configuration is required. Enter an access token in **Authorize** to call
+protected endpoints. Rebuild the API image after editing `docs/openapi.yaml`.
+If a previous stack included a `swagger` service, use
+`docker compose up --build --wait --wait-timeout 300 --remove-orphans` to remove
+that old container.
 
 ```bash
 curl --fail http://localhost:8080/health
@@ -72,8 +81,9 @@ docker build --target migrations -t froggobank-migrations:local .
 
 The multi-stage build uses Go 1.27.1 on Alpine 3.23 and produces a static binary in an Alpine
 runtime with CA certificates. The API and migration images run as UID/GID
-65532. Build inputs are limited to Go source, module files, and migrations;
-repository metadata, documentation, local secrets, and test files are excluded.
+65532. Build inputs include Go source, module files, migrations, and the embedded
+OpenAPI specification and Swagger UI assets. Other documentation, repository
+metadata, local secrets, and test files are excluded.
 The API image contains neither the Go toolchain nor Goose.
 
 For an existing migrated database and HTTPS OIDC provider, supply the variables

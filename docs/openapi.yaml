@@ -1,0 +1,514 @@
+openapi: 3.0.3
+
+info:
+  title: FroggoBank API
+  version: 0.1.0
+  description: API for customer accounts and posted balances
+
+servers:
+  - url: /
+    description: The server serving this specification
+
+tags:
+  - name: Health
+    description: Process liveness and database readiness.
+  - name: Users
+    description: The authenticated local user.
+  - name: Accounts
+    description: Owned customer accounts and their posted balances.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check process liveness
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: The application process is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessResponse"
+              example:
+                status: ok
+
+  /ready:
+    get:
+      operationId: getReadiness
+      summary: Check database readiness
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: PostgreSQL is available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              example:
+                status: ready
+        "503":
+          description: PostgreSQL is unavailable or the readiness check timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReadyResponse"
+              example:
+                status: not_ready
+
+  /me:
+    get:
+      operationId: getCurrentUser
+      summary: Get the authenticated local user
+      description: Returns the local user ID and creation time, without provider identity or credentials.
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The authenticated local user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+              example:
+                id: "246d4d77-07c1-40dc-9b28-9af57a2d4cb9"
+                created_at: "2026-01-01T12:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/UserResolutionFailed"
+
+  /accounts:
+    get:
+      operationId: getUserAccounts
+      summary: List the authenticated user's accounts
+      tags:
+        - Accounts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of accounts to return.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+
+        - name: offset
+          in: query
+          description: Number of matching accounts to skip.
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+
+        - name: currency
+          in: query
+          description: Filter by currency. Omit to include all currencies. Empty, lowercase, and unsupported values are rejected.
+          required: false
+          schema:
+            type: string
+            enum:
+              - EUR
+              - USD
+              - GBP
+
+      responses:
+        "200":
+          description: >
+            Accounts ordered by created_at descending, then id descending.
+            Ownership and currency filters apply before pagination.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAccountsResponse"
+              example:
+                accounts:
+                  - id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                    currency: EUR
+                    account_type: liability
+                    enforce_nonnegative_balance: true
+                    created_at: "2026-01-01T12:00:00Z"
+                limit: 20
+                offset: 0
+
+        "400":
+          description: Invalid pagination or currency.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidPagination:
+                  value:
+                    error: limit must be 1-100 and offset must be nonnegative integers
+                invalidCurrency:
+                  value:
+                    error: invalid currency
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "500":
+          description: Account listing or authenticated user resolution failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                listingFailed:
+                  value:
+                    error: failed to fetch account
+                userResolutionFailed:
+                  value:
+                    error: failed to resolve user
+
+    post:
+      operationId: createAccount
+      summary: Create an owned customer account
+      description: >
+        Creates a liability account owned by the authenticated local user,
+        with nonnegative-balance enforcement. The body must contain a single
+        JSON object, with no unknown fields, and must not exceed 1 MiB.
+        Ownership and accounting policy are assigned by the service.
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+            example:
+              currency: EUR
+      responses:
+        "201":
+          description: The customer account was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              example:
+                id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                currency: EUR
+                account_type: liability
+                enforce_nonnegative_balance: true
+                created_at: "2026-01-01T12:00:00Z"
+        "400":
+          description: Invalid request body or unsupported currency.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCurrency:
+                  value:
+                    error: invalid currency
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Account creation or authenticated user resolution failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                creationFailed:
+                  value:
+                    error: failed to create account
+                userResolutionFailed:
+                  value:
+                    error: failed to resolve user
+
+  /accounts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    get:
+      operationId: getAccountByID
+      summary: Get an owned customer account
+      description: Unknown accounts and accounts not owned by the caller both return 404.
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The owned customer account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              example:
+                id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                currency: EUR
+                account_type: liability
+                enforce_nonnegative_balance: true
+                created_at: "2026-01-01T12:00:00Z"
+        "400":
+          $ref: "#/components/responses/InvalidAccountID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AccountNotFound"
+        "500":
+          description: Account lookup or authenticated user resolution failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                lookupFailed:
+                  value:
+                    error: failed to fetch account
+                userResolutionFailed:
+                  value:
+                    error: failed to resolve user
+
+  /accounts/{id}/balance:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    get:
+      operationId: getAccountBalance
+      summary: Get the posted balance of an owned account
+      description: >
+        Returns cumulative posted debit and credit totals and the posted balance
+        in integer minor units, encoded as decimal strings to preserve precision.
+        For customer liabilities, the posted balance is credits minus debits.
+        Unknown accounts and accounts not owned by the caller both return 404.
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The account's committed posted balance snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountBalanceResponse"
+              example:
+                account_id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                currency: EUR
+                account_type: liability
+                normal_side: credit
+                scale: 2
+                debits_minor: "2500"
+                credits_minor: "10000"
+                posted_minor: "7500"
+        "400":
+          $ref: "#/components/responses/InvalidAccountID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AccountNotFound"
+        "500":
+          description: Balance lookup or authenticated user resolution failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                balanceLookupFailed:
+                  value:
+                    error: failed to fetch account balance
+                userResolutionFailed:
+                  value:
+                    error: failed to resolve user
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    AccountID:
+      name: id
+      in: path
+      description: The account UUID.
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or expired Bearer access token.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: unauthenticated
+    UserResolutionFailed:
+      description: The verified identity could not be resolved to a local user.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: failed to resolve user
+    InvalidAccountID:
+      description: The account ID is not a valid UUID.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: invalid id
+    AccountNotFound:
+      description: The account does not exist or is not accessible to the caller.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: account not found
+
+  schemas:
+    LivenessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    ReadinessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+    NotReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_ready]
+    UserResponse:
+      type: object
+      required: [id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    CreateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [currency]
+      properties:
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+    MinorUnitAmount:
+      type: string
+      pattern: '^[0-9]+$'
+      description: >
+        A nonnegative integer amount in minor units, encoded as a decimal string.
+        Totals may exceed int64 and JavaScript's safe integer range.
+      example: "7500"
+    AccountBalanceResponse:
+      type: object
+      required:
+        - account_id
+        - currency
+        - account_type
+        - normal_side
+        - scale
+        - debits_minor
+        - credits_minor
+        - posted_minor
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+        account_type:
+          type: string
+          enum: [liability]
+        normal_side:
+          type: string
+          enum: [credit]
+        scale:
+          type: integer
+          enum: [2]
+          description: Decimal places per major unit; 100 minor units equal one major unit.
+        debits_minor:
+          $ref: "#/components/schemas/MinorUnitAmount"
+        credits_minor:
+          $ref: "#/components/schemas/MinorUnitAmount"
+        posted_minor:
+          $ref: "#/components/schemas/MinorUnitAmount"
+    Account:
+      type: object
+      required:
+        - id
+        - currency
+        - account_type
+        - enforce_nonnegative_balance
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+        account_type:
+          type: string
+          enum: [liability]
+        enforce_nonnegative_balance:
+          type: boolean
+          enum: [true]
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedAccountsResponse:
+      type: object
+      required:
+        - accounts
+        - limit
+        - offset
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Account"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string

@@ -27,6 +27,7 @@ func NewRouter(
 	if err := router.SetTrustedProxies(nil); err != nil {
 		panic(err)
 	}
+	registerDocumentation(router)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

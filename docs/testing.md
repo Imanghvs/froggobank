@@ -27,6 +27,14 @@ ownership, and protected HTTP routes. Automated tests never require live Keycloa
 Domain and application tests run without a database. Application tests fake the
 repository port; HTTP tests fake the application service boundary.
 
+Documentation router tests verify the public Swagger UI routes, embedded assets,
+specification content type, relative API server URL, and redirect from `/docs`
+to `/docs/`. Run them with:
+
+```bash
+go test ./internal/server -run '^TestDocumentationRoutes$' -count=1
+```
+
 Account-listing handler and router tests cover caller, pagination, and currency
 forwarding, including a nil filter when currency is omitted. They verify that
 EUR, USD, and GBP are accepted, while empty, unsupported, lowercase, and padded

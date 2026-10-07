@@ -1,4 +1,4 @@
-# Only source and migration inputs are included in the build context.
+# Only source, embedded API documentation, and migration inputs are included.
 **
 !Dockerfile
 !go.mod
@@ -7,6 +7,11 @@
 !cmd/**
 !internal/
 !internal/**
+!docs/
+!docs/assets.go
+!docs/openapi.yaml
+!docs/swagger/
+!docs/swagger/**
 !migrations/
 !migrations/**
 **/*_test.go
