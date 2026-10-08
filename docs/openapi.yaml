@@ -16,6 +16,8 @@ tags:
     description: The authenticated local user.
   - name: Accounts
     description: Owned customer accounts and their posted balances.
+  - name: Transfers
+    description: Planned transfers between the caller's accounts; not yet implemented.
 
 paths:
   /health:
@@ -324,6 +326,115 @@ paths:
                   value:
                     error: failed to resolve user
 
+  /transfers:
+    post:
+      operationId: createTransfer
+      summary: Transfer funds between the caller's accounts
+      description: >
+        Planned API contract; this operation is not yet implemented.
+        Both accounts must be distinct customer accounts owned by the caller
+        and use the same currency. Currency is determined from the accounts.
+        The amount is a positive integer in minor units encoded as a decimal
+        string, at most 9223372036854775807. A transfer atomically debits the
+        source liability account and credits the destination liability account.
+        Insufficient funds must leave no committed postings or balance changes.
+        Successful retries with the same Idempotency-Key and canonical request
+        details return the original 201 response without posting again.
+        Keys are scoped to the authenticated caller and transfer operation.
+        Reusing a key with different request details returns 409.
+      tags: [Transfers]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            A nonempty client-generated key identifying this transfer request.
+            Reuse the same key when retrying the same transfer.
+          schema:
+            type: string
+            minLength: 1
+          example: "48b2ba51-9786-4169-bf79-2ac2872449bf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransferRequest"
+            example:
+              from_account_id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+              to_account_id: "04b095de-5559-4626-9ca3-a82ebd38310e"
+              amount_minor: "2500"
+      responses:
+        "201":
+          description: The committed transfer, or the original result of a successful retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transfer"
+              example:
+                id: "f0ec7f58-ec47-45fd-a63b-886cad7dd934"
+                from_account_id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                to_account_id: "04b095de-5559-4626-9ca3-a82ebd38310e"
+                amount_minor: "2500"
+                currency: EUR
+                created_at: "2026-01-01T12:00:00Z"
+        "400":
+          description: >
+            Invalid request body, account UUID, amount, or idempotency key;
+            identical source and destination accounts; or currency mismatch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidAmount:
+                  value:
+                    error: invalid amount
+                invalidKey:
+                  value:
+                    error: invalid idempotency key
+                identicalAccounts:
+                  value:
+                    error: source and destination accounts must be different
+                currencyMismatch:
+                  value:
+                    error: accounts must use the same currency
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AccountNotFound"
+        "409":
+          description: Insufficient funds or an idempotency key reused with different request details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                insufficientFunds:
+                  value:
+                    error: insufficient funds
+                idempotencyConflict:
+                  value:
+                    error: idempotency key conflicts with an existing transfer
+        "500":
+          description: Transfer processing or authenticated user resolution failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                transferFailed:
+                  value:
+                    error: failed to create transfer
+                userResolutionFailed:
+                  value:
+                    error: failed to resolve user
+
 components:
   securitySchemes:
     bearerAuth:
@@ -504,6 +615,62 @@ components:
         offset:
           type: integer
           minimum: 0
+
+    PositiveMinorUnitAmount:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+      maxLength: 19
+      description: >
+        A positive integer amount in minor units, at most 9223372036854775807.
+        Leading zeros and signs are rejected.
+      example: "2500"
+
+    CreateTransferRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - from_account_id
+        - to_account_id
+        - amount_minor
+      properties:
+        from_account_id:
+          type: string
+          format: uuid
+          description: The caller's source customer account.
+        to_account_id:
+          type: string
+          format: uuid
+          description: A different customer account owned by the caller, in the same currency.
+        amount_minor:
+          $ref: "#/components/schemas/PositiveMinorUnitAmount"
+
+    Transfer:
+      type: object
+      required:
+        - id
+        - from_account_id
+        - to_account_id
+        - amount_minor
+        - currency
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_account_id:
+          type: string
+          format: uuid
+        to_account_id:
+          type: string
+          format: uuid
+        amount_minor:
+          $ref: "#/components/schemas/PositiveMinorUnitAmount"
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+        created_at:
+          type: string
+          format: date-time
 
     ErrorResponse:
       type: object
