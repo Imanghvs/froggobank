@@ -363,8 +363,8 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateTransferRequest"
             example:
-              from_account_id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
-              to_account_id: "04b095de-5559-4626-9ca3-a82ebd38310e"
+              source: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+              destination: "04b095de-5559-4626-9ca3-a82ebd38310e"
               amount_minor: "2500"
       responses:
         "201":
@@ -375,14 +375,14 @@ paths:
                 $ref: "#/components/schemas/Transfer"
               example:
                 id: "f0ec7f58-ec47-45fd-a63b-886cad7dd934"
-                from_account_id: "82875e6c-857c-4ca0-9301-af810c68c5a9"
-                to_account_id: "04b095de-5559-4626-9ca3-a82ebd38310e"
+                source: "82875e6c-857c-4ca0-9301-af810c68c5a9"
+                destination: "04b095de-5559-4626-9ca3-a82ebd38310e"
                 amount_minor: "2500"
                 currency: EUR
                 created_at: "2026-01-01T12:00:00Z"
         "400":
           description: >
-            Invalid request body, account UUID, amount, or idempotency key;
+            Invalid request body, account UUID, amount, currency, or idempotency key;
             identical source and destination accounts; or currency mismatch.
           content:
             application/json:
@@ -395,6 +395,12 @@ paths:
                 invalidAmount:
                   value:
                     error: invalid amount
+                invalidCurrency:
+                  value:
+                    error: invalid currency
+                invalidAccountIDs:
+                  value:
+                    error: invalid source or destination account ID
                 invalidKey:
                   value:
                     error: invalid idempotency key
@@ -403,11 +409,22 @@ paths:
                     error: source and destination accounts must be different
                 currencyMismatch:
                   value:
-                    error: accounts must use the same currency
+                    error: account currencies must match the transfer currency
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/AccountNotFound"
+          description: A source or destination account does not exist or is not accessible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                sourceNotFound:
+                  value:
+                    error: source account not found
+                destinationNotFound:
+                  value:
+                    error: destination account not found
         "409":
           description: Insufficient funds or an idempotency key reused with different request details.
           content:
@@ -629,15 +646,15 @@ components:
       type: object
       additionalProperties: false
       required:
-        - from_account_id
-        - to_account_id
+        - source
+        - destination
         - amount_minor
       properties:
-        from_account_id:
+        source:
           type: string
           format: uuid
           description: The caller's source customer account.
-        to_account_id:
+        destination:
           type: string
           format: uuid
           description: A different customer account owned by the caller, in the same currency.
@@ -648,8 +665,8 @@ components:
       type: object
       required:
         - id
-        - from_account_id
-        - to_account_id
+        - source
+        - destination
         - amount_minor
         - currency
         - created_at
@@ -657,10 +674,10 @@ components:
         id:
           type: string
           format: uuid
-        from_account_id:
+        source:
           type: string
           format: uuid
-        to_account_id:
+        destination:
           type: string
           format: uuid
         amount_minor:

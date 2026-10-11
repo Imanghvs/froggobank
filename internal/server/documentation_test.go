@@ -10,13 +10,21 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	accounthttpapi "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	transferhttpapi "github.com/Imanghvs/froggobank/internal/transfer/adapters/httpapi"
 )
 
 func TestDocumentationRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	// Documentation must be available without credentials or a database.
-	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, httpapi.New(nil), nil, nil)
+	router := NewRouter(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		accounthttpapi.New(nil),
+		transferhttpapi.New(nil),
+		nil,
+		nil,
+	)
 	for _, tc := range []struct {
 		path        string
 		contentType string

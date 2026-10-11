@@ -12,20 +12,26 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	accounthttpapi "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
-	"github.com/Imanghvs/froggobank/internal/account/application"
+	accountapp "github.com/Imanghvs/froggobank/internal/account/application"
 	authoidc "github.com/Imanghvs/froggobank/internal/platform/authentication/oidc"
 	"github.com/Imanghvs/froggobank/internal/platform/config"
 	"github.com/Imanghvs/froggobank/internal/platform/database"
 	"github.com/Imanghvs/froggobank/internal/platform/logging"
 	"github.com/Imanghvs/froggobank/internal/server"
+	transferhttpapi "github.com/Imanghvs/froggobank/internal/transfer/adapters/httpapi"
+	transferpostgres "github.com/Imanghvs/froggobank/internal/transfer/adapters/postgres"
+	transferapp "github.com/Imanghvs/froggobank/internal/transfer/application"
 	userpostgres "github.com/Imanghvs/froggobank/internal/user/adapters/postgres"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 )
 
 const (
 	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 60 * time.Second
 	shutdownTimeout   = 10 * time.Second
 	databaseTimeout   = 5 * time.Second
 )
@@ -73,15 +79,22 @@ func run() error {
 	userService := users.New(userpostgres.New(pool))
 
 	accountRepository := accountpostgres.New(pool)
-	accountService := application.New(accountRepository)
-	accountHandler := httpapi.New(accountService)
+	accountService := accountapp.New(accountRepository)
+	accountHandler := accounthttpapi.New(accountService)
 
-	router := server.NewRouter(logger, pool, accountHandler, verifier, userService)
+	transferRepository := transferpostgres.New(pool)
+	transferService := transferapp.New(transferRepository, accountService)
+	transferHandler := transferhttpapi.New(transferService)
+
+	router := server.NewRouter(logger, pool, accountHandler, transferHandler, verifier, userService)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:           router,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	signalCtx, stop := signal.NotifyContext(

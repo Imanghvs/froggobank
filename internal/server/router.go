@@ -7,15 +7,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	accounthttpapi "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	servermiddleware "github.com/Imanghvs/froggobank/internal/server/middleware"
+	transferhttpapi "github.com/Imanghvs/froggobank/internal/transfer/adapters/httpapi"
 	userhttp "github.com/Imanghvs/froggobank/internal/user/adapters/httpapi"
 )
 
 func NewRouter(
 	logger *slog.Logger,
 	database DatabasePinger,
-	accountHandler *httpapi.Handler,
+	accountHandler *accounthttpapi.Handler,
+	transferHandler *transferhttpapi.Handler,
 	verifier servermiddleware.AccessTokenVerifier,
 	users servermiddleware.UserResolver,
 ) *gin.Engine {
@@ -23,6 +25,7 @@ func NewRouter(
 
 	router.Use(servermiddleware.RequestLogger(logger))
 	router.Use(gin.Recovery())
+	gin.EnableJsonDecoderDisallowUnknownFields()
 
 	if err := router.SetTrustedProxies(nil); err != nil {
 		panic(err)
@@ -60,6 +63,7 @@ func NewRouter(
 	protected.GET("/accounts/:id", accountHandler.GetByID)
 	protected.GET("/accounts/:id/balance", accountHandler.GetBalance)
 	protected.GET("/accounts", accountHandler.GetUserAccounts)
+	protected.POST("/transfers", transferHandler.Transfer)
 
 	return router
 }

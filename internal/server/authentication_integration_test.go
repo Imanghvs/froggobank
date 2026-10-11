@@ -17,11 +17,14 @@ import (
 
 	accounthttp "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	accountpostgres "github.com/Imanghvs/froggobank/internal/account/adapters/postgres"
-	accounts "github.com/Imanghvs/froggobank/internal/account/application"
+	accountapp "github.com/Imanghvs/froggobank/internal/account/application"
 	account "github.com/Imanghvs/froggobank/internal/account/domain"
 	authoidc "github.com/Imanghvs/froggobank/internal/platform/authentication/oidc"
 	"github.com/Imanghvs/froggobank/internal/testutil/oidcfixture"
 	testdb "github.com/Imanghvs/froggobank/internal/testutil/postgres"
+	transferhttp "github.com/Imanghvs/froggobank/internal/transfer/adapters/httpapi"
+	transferpostgres "github.com/Imanghvs/froggobank/internal/transfer/adapters/postgres"
+	transferapp "github.com/Imanghvs/froggobank/internal/transfer/application"
 	userpostgres "github.com/Imanghvs/froggobank/internal/user/adapters/postgres"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
@@ -36,8 +39,17 @@ func TestAuthenticatedAccountAPIWithPostgres(t *testing.T) {
 	}
 	userService := users.New(userpostgres.New(pool))
 	accountRepo := accountpostgres.New(pool)
-	accountService := accounts.New(accountRepo)
-	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), pool, accounthttp.New(accountService), v, userService)
+	transferRepo := transferpostgres.New(pool)
+	accountService := accountapp.New(accountRepo)
+	transferService := transferapp.New(transferRepo, accountService)
+	router := NewRouter(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		pool,
+		accounthttp.New(accountService),
+		transferhttp.New(transferService),
+		v,
+		userService,
+	)
 	request := func(token, method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body)).WithContext(t.Context())
 		req.Header.Set("Content-Type", "application/json")
@@ -164,7 +176,7 @@ func TestOwnershipMigrationLeavesLegacyAccountsInternalAndRollsBack(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := accounts.New(accountpostgres.New(pool))
+		s := accountapp.New(accountpostgres.New(pool))
 		if _, err := s.GetAccountByID(t.Context(), localUser.ID, id); !errors.Is(err, account.ErrNotFound) {
 			t.Fatalf("legacy account exposed: %v", err)
 		}

@@ -16,9 +16,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
+	accounthttpapi "github.com/Imanghvs/froggobank/internal/account/adapters/httpapi"
 	"github.com/Imanghvs/froggobank/internal/account/application"
-	"github.com/Imanghvs/froggobank/internal/account/domain"
+	accountdomain "github.com/Imanghvs/froggobank/internal/account/domain"
+	transferhttpapi "github.com/Imanghvs/froggobank/internal/transfer/adapters/httpapi"
+	transferdomain "github.com/Imanghvs/froggobank/internal/transfer/domain"
 	users "github.com/Imanghvs/froggobank/internal/user/application"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
 )
@@ -36,57 +38,72 @@ func (f fakeDatabase) Ping(ctx context.Context) error {
 }
 
 type fakeAccountService struct {
-	account           domain.Account
-	getUserAccountsFn func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error)
+	account           accountdomain.Account
+	getUserAccountsFn func(context.Context, uuid.UUID, application.AccountFilter) (accountdomain.PaginatedAccountsResponse, error)
 }
 
 func (f fakeAccountService) CreateAccount(
 	ctx context.Context,
 	callerID uuid.UUID,
 	currencyCode string,
-) (domain.Account, error) {
+) (accountdomain.Account, error) {
 	return f.account, nil
 }
 
-func (f fakeAccountService) GetAccountBalance(ctx context.Context, callerID, id uuid.UUID) (domain.Balance, error) {
+func (f fakeAccountService) GetAccountBalance(ctx context.Context, callerID, id uuid.UUID) (accountdomain.Balance, error) {
 	if id != f.account.ID {
-		return domain.Balance{}, domain.ErrNotFound
+		return accountdomain.Balance{}, accountdomain.ErrNotFound
 	}
-	return domain.NewBalance(f.account, big.NewInt(0), big.NewInt(0))
+	return accountdomain.NewBalance(f.account, big.NewInt(0), big.NewInt(0))
 }
 
 func (f fakeAccountService) GetAccountByID(
 	ctx context.Context,
 	callerID, id uuid.UUID,
-) (domain.Account, error) {
+) (accountdomain.Account, error) {
 	if id == f.account.ID {
 		return f.account, nil
 	}
-	return domain.Account{}, domain.ErrNotFound
+	return accountdomain.Account{}, accountdomain.ErrNotFound
 }
 
 func (f fakeAccountService) GetUserAccounts(
 	ctx context.Context,
 	callerID uuid.UUID,
 	query application.AccountFilter,
-) (domain.PaginatedAccountsResponse, error) {
+) (accountdomain.PaginatedAccountsResponse, error) {
 	if f.getUserAccountsFn != nil {
 		return f.getUserAccountsFn(ctx, callerID, query)
 	}
-	var resAccounts []domain.Account
-	return domain.PaginatedAccountsResponse{
+	var resAccounts []accountdomain.Account
+	return accountdomain.PaginatedAccountsResponse{
 		Accounts: resAccounts,
 		Limit:    query.Limit,
 		Offset:   query.Offset,
 	}, nil
 }
 
+type fakeTransferService struct {
+	transfer transferdomain.Transfer
+}
+
+func (f fakeTransferService) Transfer(
+	ctx context.Context,
+	callerID uuid.UUID,
+	source uuid.UUID,
+	destination uuid.UUID,
+	amountMinor string,
+) (transferdomain.Transfer, error) {
+	return f.transfer, nil
+}
+
 func TestAccountRoutesUseSuppliedHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	acc := domain.New(domain.CurrencyEUR)
-	handler := httpapi.New(fakeAccountService{account: acc})
-	router := NewRouter(logger, fakeDatabase{}, handler, testVerifier{}, testUsers{})
+	acc := accountdomain.New(accountdomain.CurrencyEUR)
+	accountHandler := accounthttpapi.New(fakeAccountService{account: acc})
+	transferHandler := transferhttpapi.New(fakeTransferService{})
+	router := NewRouter(logger, fakeDatabase{}, accountHandler, transferHandler, testVerifier{}, testUsers{})
 
 	for _, tc := range []struct {
 		method string
@@ -126,7 +143,7 @@ func TestHealth(t *testing.T) {
 		slog.NewJSONHandler(io.Discard, nil),
 	)
 
-	router := NewRouter(logger, fakeDatabase{}, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	router := NewRouter(logger, fakeDatabase{}, accounthttpapi.New(fakeAccountService{}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -160,8 +177,8 @@ func TestHealth(t *testing.T) {
 }
 
 func TestAccountBalanceRouteUsesSuppliedHandler(t *testing.T) {
-	acc := domain.New(domain.CurrencyEUR)
-	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{account: acc}), testVerifier{}, testUsers{})
+	acc := accountdomain.New(accountdomain.CurrencyEUR)
+	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, accounthttpapi.New(fakeAccountService{account: acc}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 	res := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/accounts/"+acc.ID.String()+"/balance", nil)
 	request.Header.Set("Authorization", "Bearer test-token")
@@ -187,7 +204,7 @@ func TestReadyWhenDatabaseIsAvailable(t *testing.T) {
 
 	database := fakeDatabase{}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	router := NewRouter(logger, database, accounthttpapi.New(fakeAccountService{}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -235,7 +252,7 @@ func TestNotReadyWhenDatabaseIsUnavailable(t *testing.T) {
 		err: errors.New("database unavailable"),
 	}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	router := NewRouter(logger, database, accounthttpapi.New(fakeAccountService{}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -288,7 +305,7 @@ func TestReadyUsesDatabaseTimeout(t *testing.T) {
 		},
 	}
 
-	router := NewRouter(logger, database, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	router := NewRouter(logger, database, accounthttpapi.New(fakeAccountService{}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -328,7 +345,7 @@ func (testUsers) ResolveIdentity(ctx context.Context, identity user.Identity) (u
 	return user.User{ID: uuid.MustParse("246d4d77-07c1-40dc-9b28-9af57a2d4cb9"), Identity: identity}, nil
 }
 func TestProtectedRoutesRejectMissingOrInvalidTokens(t *testing.T) {
-	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(fakeAccountService{}), testVerifier{}, testUsers{})
+	router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, accounthttpapi.New(fakeAccountService{}), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 	for _, path := range []string{"/me", "/accounts", "/accounts/" + uuid.NewString(), "/accounts/" + uuid.NewString() + "/balance"} {
 		for _, header := range []string{"", "Bearer invalid", "Basic abc"} {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -360,7 +377,7 @@ func TestProtectedRoutesRejectMissingOrInvalidTokens(t *testing.T) {
 func TestListAccountsRouteUsesAuthenticatedCallerAndPagination(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	caller := uuid.MustParse("246d4d77-07c1-40dc-9b28-9af57a2d4cb9")
-	acc, err := domain.NewCustomer(domain.CurrencyEUR, caller)
+	acc, err := accountdomain.NewCustomer(accountdomain.CurrencyEUR, caller)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,23 +386,23 @@ func TestListAccountsRouteUsesAuthenticatedCallerAndPagination(t *testing.T) {
 		path     string
 		limit    int
 		offset   int
-		accounts []domain.Account
-		currency domain.Currency
+		accounts []accountdomain.Account
+		currency accountdomain.Currency
 	}{
-		{"defaults", "/accounts", 20, 0, []domain.Account{acc}, ""},
-		{"explicit pagination", "/accounts?limit=2&offset=3", 2, 3, []domain.Account{acc}, ""},
-		{"minimum limit", "/accounts?limit=1", 1, 0, []domain.Account{acc}, ""},
-		{"maximum limit", "/accounts?limit=100", 100, 0, []domain.Account{acc}, ""},
-		{"offset only", "/accounts?offset=4", 20, 4, []domain.Account{acc}, ""},
-		{"empty page", "/accounts?limit=2&offset=100", 2, 100, []domain.Account{}, ""},
+		{"defaults", "/accounts", 20, 0, []accountdomain.Account{acc}, ""},
+		{"explicit pagination", "/accounts?limit=2&offset=3", 2, 3, []accountdomain.Account{acc}, ""},
+		{"minimum limit", "/accounts?limit=1", 1, 0, []accountdomain.Account{acc}, ""},
+		{"maximum limit", "/accounts?limit=100", 100, 0, []accountdomain.Account{acc}, ""},
+		{"offset only", "/accounts?offset=4", 20, 4, []accountdomain.Account{acc}, ""},
+		{"empty page", "/accounts?limit=2&offset=100", 2, 100, []accountdomain.Account{}, ""},
 		{"nil results become an empty array", "/accounts", 20, 0, nil, ""},
-		{"EUR filter with pagination", "/accounts?currency=EUR&limit=2&offset=3", 2, 3, []domain.Account{acc}, domain.CurrencyEUR},
-		{"USD filter", "/accounts?currency=USD", 20, 0, []domain.Account{}, domain.CurrencyUSD},
-		{"GBP filter", "/accounts?currency=GBP", 20, 0, []domain.Account{}, domain.CurrencyGBP},
+		{"EUR filter with pagination", "/accounts?currency=EUR&limit=2&offset=3", 2, 3, []accountdomain.Account{acc}, accountdomain.CurrencyEUR},
+		{"USD filter", "/accounts?currency=USD", 20, 0, []accountdomain.Account{}, accountdomain.CurrencyUSD},
+		{"GBP filter", "/accounts?currency=GBP", 20, 0, []accountdomain.Account{}, accountdomain.CurrencyGBP},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			service := fakeAccountService{getUserAccountsFn: func(ctx context.Context, id uuid.UUID, query application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
+			service := fakeAccountService{getUserAccountsFn: func(ctx context.Context, id uuid.UUID, query application.AccountFilter) (accountdomain.PaginatedAccountsResponse, error) {
 				calls++
 				resolved, ok := users.UserFromContext(ctx)
 				if !ok || resolved.ID != caller || id != caller {
@@ -401,9 +418,9 @@ func TestListAccountsRouteUsesAuthenticatedCallerAndPagination(t *testing.T) {
 				} else if query.Currency == nil || *query.Currency != tc.currency {
 					t.Errorf("currency filter was not forwarded: got %v, want %q", query.Currency, tc.currency)
 				}
-				return domain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: query.Limit, Offset: query.Offset}, nil
+				return accountdomain.PaginatedAccountsResponse{Accounts: tc.accounts, Limit: query.Limit, Offset: query.Offset}, nil
 			}}
-			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(service), testVerifier{}, testUsers{})
+			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, accounthttpapi.New(service), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil).WithContext(t.Context())
 			req.Header.Set("Authorization", "Bearer test-token")
 			res := httptest.NewRecorder()
@@ -499,11 +516,11 @@ func TestListAccountsRouteRejectsRequestsBeforeServiceCall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
+			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (accountdomain.PaginatedAccountsResponse, error) {
 				calls++
-				return domain.PaginatedAccountsResponse{}, nil
+				return accountdomain.PaginatedAccountsResponse{}, nil
 			}}
-			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(service), testVerifier{}, testUsers{})
+			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, accounthttpapi.New(service), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 			req := httptest.NewRequest(http.MethodGet, "/accounts"+tc.query, nil)
 			req.Header.Set("Authorization", tc.header)
 			res := httptest.NewRecorder()
@@ -538,10 +555,10 @@ func TestListAccountsRouteHandlesServiceErrors(t *testing.T) {
 		{"service failure", errors.New("private database connection details"), http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (domain.PaginatedAccountsResponse, error) {
-				return domain.PaginatedAccountsResponse{}, tc.err
+			service := fakeAccountService{getUserAccountsFn: func(context.Context, uuid.UUID, application.AccountFilter) (accountdomain.PaginatedAccountsResponse, error) {
+				return accountdomain.PaginatedAccountsResponse{}, tc.err
 			}}
-			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, httpapi.New(service), testVerifier{}, testUsers{})
+			router := NewRouter(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeDatabase{}, accounthttpapi.New(service), transferhttpapi.New(fakeTransferService{}), testVerifier{}, testUsers{})
 			req := httptest.NewRequest(http.MethodGet, "/accounts", nil)
 			req.Header.Set("Authorization", "Bearer test-token")
 			res := httptest.NewRecorder()

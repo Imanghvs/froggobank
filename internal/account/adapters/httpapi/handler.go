@@ -1,9 +1,7 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -12,7 +10,7 @@ import (
 
 	"github.com/Imanghvs/froggobank/internal/account/application"
 	"github.com/Imanghvs/froggobank/internal/account/domain"
-	users "github.com/Imanghvs/froggobank/internal/user/application"
+	httpresponse "github.com/Imanghvs/froggobank/internal/platform/httpapi"
 	user "github.com/Imanghvs/froggobank/internal/user/domain"
 )
 
@@ -45,42 +43,28 @@ type paginatedAccountsResponse struct {
 }
 
 func (h *Handler) Create(c *gin.Context) {
-	caller, ok := users.UserFromContext(c.Request.Context())
+	caller, ok := httpresponse.RequireUser(c)
 	if !ok {
-		unauthorized(c)
 		return
 	}
 	var req createAccountRequest
 
-	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&req)
-	if err == nil {
-		var extra any
-		if decoder.Decode(&extra) != io.EOF {
-			err = errors.New("multiple JSON values")
-		}
-	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid request body",
-		})
+	if err := c.ShouldBindWith(&req, httpresponse.StrictJSON{}); err != nil {
+		httpresponse.Error(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	acc, err := h.service.CreateAccount(c.Request.Context(), caller.ID, req.Currency)
 	if err != nil {
 		if errors.Is(err, user.ErrUnauthenticated) {
-			unauthorized(c)
+			httpresponse.Unauthorized(c)
 			return
 		}
 		if errors.Is(err, domain.ErrInvalidCurrency) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+			httpresponse.Error(c, http.StatusBadRequest, "invalid currency")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to create account",
-		})
+		httpresponse.Error(c, http.StatusInternalServerError, "failed to create account")
 		return
 	}
 
@@ -94,32 +78,27 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) GetByID(c *gin.Context) {
-	caller, ok := users.UserFromContext(c.Request.Context())
+	caller, ok := httpresponse.RequireUser(c)
 	if !ok {
-		unauthorized(c)
 		return
 	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid id",
-		})
+		httpresponse.Error(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 
 	acc, err := h.service.GetAccountByID(c.Request.Context(), caller.ID, id)
 	if err != nil {
 		if errors.Is(err, user.ErrUnauthenticated) {
-			unauthorized(c)
+			httpresponse.Unauthorized(c)
 			return
 		}
 		if errors.Is(err, domain.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			httpresponse.Error(c, http.StatusNotFound, "account not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to fetch account",
-		})
+		httpresponse.Error(c, http.StatusInternalServerError, "failed to fetch account")
 		return
 	}
 
@@ -133,16 +112,13 @@ func (h *Handler) GetByID(c *gin.Context) {
 }
 
 func (h *Handler) GetUserAccounts(c *gin.Context) {
-	caller, ok := users.UserFromContext(c.Request.Context())
+	caller, ok := httpresponse.RequireUser(c)
 	if !ok {
-		unauthorized(c)
 		return
 	}
 	var query getUserAccountsQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "limit must be 1-100 and offset must be nonnegative integers",
-		})
+		httpresponse.Error(c, http.StatusBadRequest, "limit must be 1-100 and offset must be nonnegative integers")
 		return
 	}
 
@@ -150,9 +126,7 @@ func (h *Handler) GetUserAccounts(c *gin.Context) {
 	if query.Currency != nil {
 		parsed, err := domain.ParseCurrency(*query.Currency)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "invalid currency",
-			})
+			httpresponse.Error(c, http.StatusBadRequest, "invalid currency")
 			return
 		}
 		currency = &parsed
@@ -169,12 +143,10 @@ func (h *Handler) GetUserAccounts(c *gin.Context) {
 	)
 	if err != nil {
 		if errors.Is(err, user.ErrUnauthenticated) {
-			unauthorized(c)
+			httpresponse.Unauthorized(c)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to fetch account",
-		})
+		httpresponse.Error(c, http.StatusInternalServerError, "failed to fetch account")
 		return
 	}
 
@@ -196,27 +168,26 @@ func (h *Handler) GetUserAccounts(c *gin.Context) {
 }
 
 func (h *Handler) GetBalance(c *gin.Context) {
-	caller, ok := users.UserFromContext(c.Request.Context())
+	caller, ok := httpresponse.RequireUser(c)
 	if !ok {
-		unauthorized(c)
 		return
 	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		httpresponse.Error(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 	balance, err := h.service.GetAccountBalance(c.Request.Context(), caller.ID, id)
 	if err != nil {
 		if errors.Is(err, user.ErrUnauthenticated) {
-			unauthorized(c)
+			httpresponse.Unauthorized(c)
 			return
 		}
 		if errors.Is(err, domain.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			httpresponse.Error(c, http.StatusNotFound, "account not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch account balance"})
+		httpresponse.Error(c, http.StatusInternalServerError, "failed to fetch account balance")
 		return
 	}
 	normalSide, _ := balance.AccountType().NormalSide()
@@ -233,9 +204,4 @@ func (h *Handler) GetBalance(c *gin.Context) {
 		"credits_minor": balance.CreditsMinor().String(),
 		"posted_minor":  balance.PostedMinor().String(),
 	})
-}
-
-func unauthorized(c *gin.Context) {
-	c.Header("WWW-Authenticate", "Bearer")
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
 }
